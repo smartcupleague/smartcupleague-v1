@@ -1,0 +1,460 @@
+/* =========================================================
+   RESET + BASE COLORS
+========================================================= */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  /* BASE */
+  --bg: #360014;;                 
+  --text: #ffffff;
+  --text-muted: #f2bac9;         
+  --wine: #5a0022;              
+  --wine-600: #a80545;           
+  --wine-800: #360014;           
+  --wine-soft: #801734;          
+  --wine-glow: #ff2e76;          
+
+  --accent: var(--wine-600);
+  --accent-light: var(--wine-glow);
+
+  --card-dark: #17000b;
+  --card-darker: #0e0006;
+  --radius: 14px;
+}
+
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Inter", sans-serif;
+  overflow-x: hidden;
+}
+
+a {
+  text-decoration: none;
+  color: var(--text);
+  transition: 0.25s;
+}
+
+a:hover {
+  color: var(--accent);
+}
+
+
+/* =========================================================
+   PAGE WRAPPER
+========================================================= */
+.scb-page {
+  width: 100%;
+  min-height: 100vh;
+}
+
+/* =========================================================
+   NAVBAR
+========================================================= */
+.scb-nav {
+  width: 100%;
+  padding: 22px 7%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.scb-logo {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-weight: 800;
+  font-size: 1.3rem;
+}
+
+.scb-logo__mark {
+  color: var(--accent);
+}
+
+.scb-nav__links {
+  display: flex;
+  gap: 24px;
+  margin-left: 35px;
+  font-size: 0.95rem;
+  opacity: 0.9;
+}
+
+.scb-nav__right button {
+  margin-left: 12px;
+}
+
+/* =========================================================
+   BUTTONS
+========================================================= */
+.scb-btn {
+  padding: 10px 22px;
+  border-radius: 50px;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: 0.3s;
+}
+
+.scb-btn--primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.scb-btn--primary:hover {
+  background: var(--accent-light);
+}
+
+.scb-btn--ghost {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  color: #fff;
+}
+
+.scb-btn--ghost:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.scb-btn--lg {
+  font-size: 1rem;
+  padding: 14px 36px;
+}
+
+
+/* =========================================================
+   HERO REPLICADO DE LA IMAGEN
+========================================================= */
+
+.scb-hero {
+  position: relative;
+  min-height: 480px;
+  overflow: hidden;
+  padding: 90px 0;
+}
+
+/* Hintergrund */
+.scb-hero__image-wrapper {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.scb-hero__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.scb-hero__image-gradient {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.05) 0%,
+    rgba(0, 0, 0, 0.55) 35%,
+    rgba(0, 0, 0, 0.85) 65%,
+    rgba(0, 0, 0, 1) 90%
+  );
+}
+
+/* Text block */
+.scb-hero__headline-block {
+  position: relative;
+  z-index: 2;
+  width: fit-content;
+  margin-left: auto;
+  margin-right: 7%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: right;
+}
+
+.scb-hero__kicker {
+  font-size: 0.85rem;
+  letter-spacing: 0.38em;
+  color: var(--text-muted);
+}
+
+.scb-hero__headline {
+  line-height: 1.1;
+  text-transform: uppercase;
+  font-weight: 900;
+}
+
+.scb-hero__headline-main {
+  display: block;
+  font-size: 3.6rem;
+  color: var(--accent);
+}
+
+.scb-hero__headline-line {
+  font-size: 2rem;
+  display: block;
+}
+
+.scb-hero__highlight {
+  color: var(--accent-light);
+}
+
+.scb-hero__cta {
+  margin-top: 12px;
+  margin-left: auto;
+}
+
+
+
+/* =========================================================
+   HERO INFO (TEXTO EN BARRA ROSA)
+========================================================= */
+.scb-hero-info {
+  background: var(--wine-600);
+  padding: 24px 9% 28px;
+}
+
+.scb-hero-info__inner {
+  max-width: 900px;
+}
+
+.scb-hero-info__title {
+  font-size: 1rem;
+  font-weight: 900;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.scb-hero-info__text {
+  color: #ffdef2;
+  font-size: 0.92rem;
+  line-height: 1.7;
+}
+
+
+
+/* =========================================================
+   BAND STATS
+========================================================= */
+.scb-section {
+  padding: 70px 7%;
+}
+
+.scb-section--band {
+  background: #1f0010;
+}
+
+.scb-band {
+  display: flex;
+  gap: 6%;
+  justify-content: center;
+  text-align: center;
+}
+
+.scb-band__value {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.scb-band__label {
+  font-size: 0.95rem;
+  opacity: 0.8;
+}
+
+
+
+/* =========================================================
+   TOURNAMENTS
+========================================================= */
+.scb-section__header--center {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.scb-tournaments {
+  display: flex;
+  gap: 28px;
+  justify-content: center;
+}
+
+.scb-tournament-card {
+  background: var(--card-dark);
+  border-radius: var(--radius);
+  overflow: hidden;
+  width: 280px;
+  transition: 0.3s;
+}
+
+.scb-tournament-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 10px 30px #ff008018;
+}
+
+.scb-tournament-card img {
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+}
+
+.scb-tournament-card__content {
+  padding: 16px;
+}
+
+.scb-pill {
+  display: inline-block;
+  padding: 3px 9px;
+  background: var(--wine-600);
+  border-radius: 40px;
+  font-size: 0.75rem;
+  margin-bottom: 6px;
+}
+
+
+
+/* =========================================================
+   WHY SECTION
+========================================================= */
+.scb-grid {
+  display: grid;
+  grid-template-columns: repeat(3,1fr);
+  gap: 26px;
+}
+
+.scb-feature-card {
+  background: var(--card-dark);
+  padding: 26px;
+  text-align: center;
+  border-radius: var(--radius);
+  font-size: 0.95rem;
+}
+
+
+
+/* =========================================================
+   HIGHLIGHTS
+========================================================= */
+.scb-highlights {
+  display: flex;
+  gap: 26px;
+}
+
+.scb-highlight {
+  width: 33%;
+  position: relative;
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.scb-highlight img {
+  width: 100%;
+  height: 230px;
+  object-fit: cover;
+  filter: brightness(0.75);
+}
+
+.scb-highlight__overlay {
+  position: absolute;
+  bottom: 12px;
+  left: 14px;
+  font-size: 0.9rem;
+}
+
+
+
+/* =========================================================
+   STEPS
+========================================================= */
+.scb-steps {
+  display: flex;
+  justify-content: center;
+  gap: 80px;
+}
+
+.scb-step {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+
+
+/* =========================================================
+   COMMUNITY
+========================================================= */
+.scb-community {
+  display: flex;
+  gap: 26px;
+  justify-content: center;
+}
+
+.scb-community__card {
+  background: var(--card-dark);
+  padding: 26px;
+  width: 260px;
+  border-radius: var(--radius);
+  text-align: center;
+}
+
+
+
+/* =========================================================
+   CTA FINAL
+========================================================= */
+.scb-section--cta {
+  text-align: center;
+}
+
+.scb-cta h2 {
+  font-size: 2.2rem;
+  font-weight: 900;
+}
+
+.scb-cta p {
+  opacity: 0.7;
+  margin-top: 4px;
+  margin-bottom: 20px;
+}
+
+
+
+/* =========================================================
+   FOOTER
+========================================================= */
+.scb-footer {
+  text-align: center;
+  padding: 40px 0 60px;
+  opacity: 0.6;
+  font-size: 0.85rem;
+}
+
+.logo-small img {
+  width: 130px;  
+  height: auto;
+  gap:130px;
+}
+
+
+
+/* =========================================================
+   RESPONSIVE
+========================================================= */
+@media (max-width: 900px) {
+  .scb-hero__headline-main { font-size: 3rem; }
+  .scb-hero__headline-line { font-size: 1.6rem; }
+  .scb-tournaments { flex-wrap: wrap; }
+  .scb-highlights { flex-direction: column; }
+  .scb-highlight { width: 100%; }
+}
+
+@media (max-width: 600px) {
+  nav { flex-wrap: wrap; }
+  .scb-hero { padding-top: 70px; }
+  .scb-hero__headline-block { margin-right: 5%; }
+  .scb-hero__headline-main { font-size: 2.4rem; }
+  .scb-hero__headline-line { font-size: 1.3rem; }
+  .scb-section { padding: 50px 6%; }
+}
