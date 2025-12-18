@@ -3,8 +3,6 @@ import { Header, Footer, ApiLoader } from '@/components';
 import { withProviders } from '@/hocs';
 import { Routing } from '@/pages';
 
-
-
 function Component() {
   const { isApiReady } = useApi();
   const { isAccountReady } = useAccount();

@@ -1,27 +1,25 @@
-import React from "react";
-import { matches, Match } from "./matches";
-import "./scb-dashboard.css"; 
+import React from 'react';
+import { matches, Match } from './matches';
+import './scb-dashboard.css';
 
-const getCupPillClass = (color: Match["cupColor"]) => {
+const getCupPillClass = (color: Match['cupColor']) => {
   switch (color) {
-    case "green":
-      return "scb-pill scb-pill--green";
-    case "blue":
-      return "scb-pill scb-pill--blue";
-    case "purple":
-      return "scb-pill scb-pill--purple";
+    case 'green':
+      return 'scb-pill scb-pill--green';
+    case 'blue':
+      return 'scb-pill scb-pill--blue';
+    case 'purple':
+      return 'scb-pill scb-pill--purple';
     default:
-      return "scb-pill";
+      return 'scb-pill';
   }
 };
 
 const formatOdds = (match: Match) =>
-  `${match.odds.home.toFixed(2)} · ${match.odds.draw.toFixed(2)} · ${match.odds.away.toFixed(
-    2
-  )}`;
+  `${match.odds.home.toFixed(2)} · ${match.odds.draw.toFixed(2)} · ${match.odds.away.toFixed(2)}`;
 
-const renderStatus = (status: Match["status"]) => {
-  if (status === "LIVE") {
+const renderStatus = (status: Match['status']) => {
+  if (status === 'LIVE') {
     return (
       <div className="scb-status scb-status--live">
         <span className="scb-status-dot" />
@@ -29,7 +27,7 @@ const renderStatus = (status: Match["status"]) => {
       </div>
     );
   }
-  if (status === "SCHEDULED") {
+  if (status === 'SCHEDULED') {
     return <div className="scb-status scb-status--scheduled">Scheduled</div>;
   }
   return (
@@ -56,7 +54,7 @@ export const MatchTable: React.FC = () => {
             <th>Kickoff</th>
             <th>Pools (Home / Draw / Away)</th>
             <th>Odds</th>
-            <th>Your bet</th>
+            <th>Your prediction</th>
             <th>Status</th>
           </tr>
         </thead>
@@ -111,38 +109,26 @@ export const MatchTable: React.FC = () => {
                 {match.resultSide ? (
                   <p className="scb-value">
                     Result: <strong>{match.resultSide}</strong>
-                    {match.resultScore && (
-                      <span className="scb-match-result-score"> · {match.resultScore}</span>
-                    )}
+                    {match.resultScore && <span className="scb-match-result-score"> · {match.resultScore}</span>}
                   </p>
                 ) : (
                   <p className="scb-value">{formatOdds(match)}</p>
                 )}
               </td>
 
-              {/* Your bet */}
               <td>
                 {match.userBet ? (
-                  <div
-                    className={
-                      "scb-user-bet " +
-                      (match.userBet.isWinner ? "scb-user-bet--winner" : "")
-                    }
-                  >
+                  <div className={'scb-user-bet ' + (match.userBet.isWinner ? 'scb-user-bet--winner' : '')}>
                     <span className="scb-user-bet-label">Your pick:</span>
                     <span className="scb-user-bet-pill">
                       {match.userBet.side} · {match.userBet.amount.toFixed(2)} ₿
-                      {typeof match.userBet.payoutAmount === "number" && (
-                        <span style={{ marginLeft: 6 }}>
-                          (+{match.userBet.payoutAmount.toFixed(2)} ₿)
-                        </span>
+                      {typeof match.userBet.payoutAmount === 'number' && (
+                        <span style={{ marginLeft: 6 }}>(+{match.userBet.payoutAmount.toFixed(2)} ₿)</span>
                       )}
                     </span>
                   </div>
                 ) : (
-                  <button className="scb-btn scb-btn--ghost scb-btn--xs">
-                    Place bet
-                  </button>
+                  <button className="scb-btn scb-btn--ghost scb-btn--xs">Place bet</button>
                 )}
               </td>
 

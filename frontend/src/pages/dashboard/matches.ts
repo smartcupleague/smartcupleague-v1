@@ -29,8 +29,8 @@ export interface Match {
   phase: string;
   homeTeam: string;
   awayTeam: string;
-  kickoffLabel: string;     // e.g. "21:00" or "Finished"
-  kickoffSubLabel: string;  // e.g. "Today", "Tomorrow", "2 - 1"
+  kickoffLabel: string;     
+  kickoffSubLabel: string;  
   status: MatchStatus;
   pools: MatchPools;
   odds: MatchOdds;

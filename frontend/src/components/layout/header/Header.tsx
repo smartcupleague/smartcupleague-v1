@@ -1,13 +1,12 @@
 import { Wallet } from '@gear-js/wallet-connect';
-
 import styles from './Header.module.scss';
-import { Logo } from './logo';
 
 function Header() {
   return (
     <header className={styles.header}>
-      <Logo />
-      <Wallet />
+      <div className="logo-small">
+        <img className="logo-small" src="./Logos.png" alt="Soccer fans celebrating" />
+      </div>
     </header>
   );
 }

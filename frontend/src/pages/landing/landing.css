@@ -1,6 +1,3 @@
-/* =========================================================
-   RESET + BASE COLORS
-========================================================= */
 * {
   margin: 0;
   padding: 0;
@@ -9,14 +6,14 @@
 
 :root {
   /* BASE */
-  --bg: #360014;;                 
+  --bg: #360014;
   --text: #ffffff;
-  --text-muted: #f2bac9;         
-  --wine: #5a0022;              
-  --wine-600: #a80545;           
-  --wine-800: #360014;           
-  --wine-soft: #801734;          
-  --wine-glow: #ff2e76;          
+  --text-muted: #f2bac9;
+  --wine: #5a0022;
+  --wine-600: #a80545;
+  --wine-800: #360014;
+  --wine-soft: #801734;
+  --wine-glow: #ff2e76;
 
   --accent: var(--wine-600);
   --accent-light: var(--wine-glow);
@@ -26,11 +23,10 @@
   --radius: 14px;
 }
 
-
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: "Inter", sans-serif;
+  font-family: 'Inter', sans-serif;
   overflow-x: hidden;
 }
 
@@ -44,18 +40,11 @@ a:hover {
   color: var(--accent);
 }
 
-
-/* =========================================================
-   PAGE WRAPPER
-========================================================= */
 .scb-page {
   width: 100%;
   min-height: 100vh;
 }
 
-/* =========================================================
-   NAVBAR
-========================================================= */
 .scb-nav {
   width: 100%;
   padding: 22px 7%;
@@ -88,9 +77,6 @@ a:hover {
   margin-left: 12px;
 }
 
-/* =========================================================
-   BUTTONS
-========================================================= */
 .scb-btn {
   padding: 10px 22px;
   border-radius: 50px;
@@ -125,11 +111,6 @@ a:hover {
   font-size: 1rem;
   padding: 14px 36px;
 }
-
-
-/* =========================================================
-   HERO REPLICADO DE LA IMAGEN
-========================================================= */
 
 .scb-hero {
   position: relative;
@@ -208,8 +189,6 @@ a:hover {
   margin-left: auto;
 }
 
-
-
 /* =========================================================
    HERO INFO (TEXTO EN BARRA ROSA)
 ========================================================= */
@@ -234,8 +213,6 @@ a:hover {
   font-size: 0.92rem;
   line-height: 1.7;
 }
-
-
 
 /* =========================================================
    BAND STATS
@@ -266,11 +243,6 @@ a:hover {
   opacity: 0.8;
 }
 
-
-
-/* =========================================================
-   TOURNAMENTS
-========================================================= */
 .scb-section__header--center {
   text-align: center;
   margin-bottom: 40px;
@@ -314,14 +286,9 @@ a:hover {
   margin-bottom: 6px;
 }
 
-
-
-/* =========================================================
-   WHY SECTION
-========================================================= */
 .scb-grid {
   display: grid;
-  grid-template-columns: repeat(3,1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 26px;
 }
 
@@ -333,11 +300,6 @@ a:hover {
   font-size: 0.95rem;
 }
 
-
-
-/* =========================================================
-   HIGHLIGHTS
-========================================================= */
 .scb-highlights {
   display: flex;
   gap: 26px;
@@ -364,11 +326,6 @@ a:hover {
   font-size: 0.9rem;
 }
 
-
-
-/* =========================================================
-   STEPS
-========================================================= */
 .scb-steps {
   display: flex;
   justify-content: center;
@@ -380,11 +337,6 @@ a:hover {
   font-weight: 600;
 }
 
-
-
-/* =========================================================
-   COMMUNITY
-========================================================= */
 .scb-community {
   display: flex;
   gap: 26px;
@@ -399,11 +351,6 @@ a:hover {
   text-align: center;
 }
 
-
-
-/* =========================================================
-   CTA FINAL
-========================================================= */
 .scb-section--cta {
   text-align: center;
 }
@@ -419,11 +366,6 @@ a:hover {
   margin-bottom: 20px;
 }
 
-
-
-/* =========================================================
-   FOOTER
-========================================================= */
 .scb-footer {
   text-align: center;
   padding: 40px 0 60px;
@@ -432,29 +374,231 @@ a:hover {
 }
 
 .logo-small img {
-  width: 130px;  
+  width: 130px;
   height: auto;
-  gap:130px;
+  gap: 130px;
 }
 
-
-
-/* =========================================================
-   RESPONSIVE
-========================================================= */
 @media (max-width: 900px) {
-  .scb-hero__headline-main { font-size: 3rem; }
-  .scb-hero__headline-line { font-size: 1.6rem; }
-  .scb-tournaments { flex-wrap: wrap; }
-  .scb-highlights { flex-direction: column; }
-  .scb-highlight { width: 100%; }
+  .scb-hero__headline-main {
+    font-size: 3rem;
+  }
+  .scb-hero__headline-line {
+    font-size: 1.6rem;
+  }
+  .scb-tournaments {
+    flex-wrap: wrap;
+  }
+  .scb-highlights {
+    flex-direction: column;
+  }
+  .scb-highlight {
+    width: 100%;
+  }
 }
 
 @media (max-width: 600px) {
-  nav { flex-wrap: wrap; }
-  .scb-hero { padding-top: 70px; }
-  .scb-hero__headline-block { margin-right: 5%; }
-  .scb-hero__headline-main { font-size: 2.4rem; }
-  .scb-hero__headline-line { font-size: 1.3rem; }
-  .scb-section { padding: 50px 6%; }
+  nav {
+    flex-wrap: wrap;
+  }
+  .scb-hero {
+    padding-top: 70px;
+  }
+  .scb-hero__headline-block {
+    margin-right: 5%;
+  }
+  .scb-hero__headline-main {
+    font-size: 2.4rem;
+  }
+  .scb-hero__headline-line {
+    font-size: 1.3rem;
+  }
+  .scb-section {
+    padding: 50px 6%;
+  }
+}
+
+.scb-hero-carousel {
+  position: relative;
+}
+
+.scb-carousel {
+  position: relative;
+  height: min(78vh, 720px);
+  overflow: hidden;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.scb-slide {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transform: scale(1.03);
+  transition: opacity 380ms ease, transform 700ms ease;
+}
+
+.scb-slide.is-active {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.scb-slide__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.scb-slide__gradient {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(1200px 600px at 20% 35%, rgba(255, 0, 110, 0.22), transparent 60%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.08), rgba(9, 0, 6, 0.85));
+}
+
+.scb-slide__content {
+  position: absolute;
+  left: clamp(16px, 5vw, 56px);
+  right: clamp(16px, 5vw, 56px);
+  bottom: clamp(20px, 8vh, 70px);
+  max-width: 900px;
+}
+
+.scb-hero__cta-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+.scb-btn--ghost {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-soft);
+  color: var(--text-main);
+}
+
+.scb-btn--ghost:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.scb-hero__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+/* arrows */
+.scb-carousel__arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  border: 1px solid var(--border-soft);
+  background: rgba(9, 0, 6, 0.35);
+  backdrop-filter: blur(8px);
+  color: var(--text-main);
+  font-size: 28px;
+  line-height: 44px;
+  cursor: pointer;
+  z-index: 3;
+}
+
+.scb-carousel__arrow--left {
+  left: 14px;
+}
+
+.scb-carousel__arrow--right {
+  right: 14px;
+}
+
+.scb-carousel__arrow:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* dots */
+.scb-carousel__dots {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  z-index: 3;
+}
+
+.scb-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-soft);
+  background: rgba(255, 255, 255, 0.15);
+  cursor: pointer;
+}
+
+.scb-dot.is-active {
+  background: var(--accent);
+  box-shadow: 0 0 18px rgba(255, 0, 110, 0.35);
+}
+
+.scb-steps--cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .scb-steps--cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+.scb-step-card {
+  border: 1px solid var(--border-soft);
+  background: var(--card-bg);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.scb-step-card__num {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+  background: rgba(255, 0, 110, 0.18);
+  border: 1px solid rgba(255, 0, 110, 0.28);
+}
+
+.scb-faq {
+  max-width: 920px;
+  margin: 0 auto;
+  display: grid;
+  gap: 10px;
+}
+
+.scb-faq__item {
+  border: 1px solid var(--border-soft);
+  background: var(--card-bg);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+}
+
+.scb-faq__item summary {
+  cursor: pointer;
+  font-weight: 800;
+  color: var(--text-main);
+}
+
+.scb-faq__item p {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.35rem;
 }

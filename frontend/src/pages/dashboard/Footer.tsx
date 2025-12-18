@@ -5,7 +5,7 @@ export const Footer: React.FC = () => {
   return (
     <footer className="scb-footer">
       <div className="scb-footer__left">
-        <span className="scb-footer__brand">SmartCupBet</span>
+        <span className="scb-footer__brand">SmartCupLeague</span>
         <span className="scb-footer__copy">© 2025 All rights reserved</span>
       </div>
 

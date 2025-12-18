@@ -4,8 +4,42 @@ import { Footer } from './Footer';
 import { DashboardHome } from './DashboardHome';
 import './scb-dashboard.css';
 import { Wallet } from '@gear-js/wallet-connect';
+import { MatchList } from './MatchList';
+import { MatchesTableComponent } from './AllMatchs';
 
 export type SectionKey = 'home' | 'my-bets' | 'all-bets' | 'all-cups' | 'dao' | 'settings';
+
+
+const matches = [
+  {
+    id: 1,
+    homeTeam: 'Argentina',
+    awayTeam: 'Brasil',
+    homeFlagUrl: '/flags/flag_argentina.jpg',
+    awayFlagUrl: '/flags/flag_brasil.jpg',
+    dateLabel: '21 Nov · 18:00',
+    groupLabel: 'Semi-final',
+    stadiumLabel: 'Lusail Stadium',
+  },
+  {
+    id: 2,
+    homeTeam: 'Belgica',
+    awayTeam: 'Francia',
+    homeFlagUrl: '/flags/flag_belgica.jpg',
+    awayFlagUrl: '/flags/flag_frança.jpg',
+    dateLabel: '22 Nov · 21:00',
+    groupLabel: 'Quarter-final',
+  },
+  {
+    id: 3,
+    homeTeam: 'Qatar',
+    awayTeam: 'Ecuador',
+    homeFlagUrl: '/images/flag_qatar.jpg',
+    awayFlagUrl: '/images/flag_equador.jpg',
+    dateLabel: '22 Nov · 23:00',
+    groupLabel: 'Quarter-final',
+  },
+];
 
 const Dashboard: React.FC = () => {
   const [activeSection, setActiveSection] = useState<SectionKey>('home');
@@ -17,7 +51,7 @@ const Dashboard: React.FC = () => {
       case 'my-bets':
         return <div className="scb-panel-placeholder">My Bets – coming soon.</div>;
       case 'all-bets':
-        return <div className="scb-panel-placeholder">All Bets – coming soon.</div>;
+        return <MatchesTableComponent/>;
       case 'all-cups':
         return <div className="scb-panel-placeholder">All Cups – coming soon.</div>;
       case 'dao':

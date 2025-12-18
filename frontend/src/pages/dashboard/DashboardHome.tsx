@@ -7,12 +7,10 @@ import './scb-dashboard.css';
 export const DashboardHome: React.FC = () => {
   return (
     <div className="scb-dashboard-home">
-      {/* TOP: DAO SUMMARY */}
       <section className="scb-dashboard-home__row scb-dashboard-home__row--top">
         <DaoPanel />
       </section>
 
-      {/* MIDDLE: MATCHES + ACTIVITY */}
       <section className="scb-dashboard-home__row">
         <div className="scb-dashboard-home__primary">
           <div className="scb-section__header scb-dashboard__header-row">
