@@ -1,1 +1,1 @@
-../target/wasm32-gear/debug/wasm
+../target/wasm32-gear/release/wasm

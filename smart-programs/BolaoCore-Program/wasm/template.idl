@@ -1,9 +1,117 @@
+type Outcome = enum {
+  Home,
+  Draw,
+  Away,
+};
+
+type MatchInfo = struct {
+  match_id: u64,
+  phase: str,
+  home: str,
+  away: str,
+  kick_off: u64,
+  result: ResultStatus,
+  pool_home: u128,
+  pool_draw: u128,
+  pool_away: u128,
+  has_bets: bool,
+  participants: vec actor_id,
+};
+
+type ResultStatus = enum {
+  Unresolved,
+  Proposed: struct {
+    outcome: Outcome,
+    oracle: actor_id,
+  },
+  Finalized: struct {
+    outcome: Outcome
+  },
+};
+
+/// Query replies
+type IoBolaoState = struct {
+  owner: actor_id,
+  kyc_contract: actor_id,
+  final_prize_distributor: actor_id,
+  fee_accum: u128,
+  final_prize_accum: u128,
+  matches: vec MatchInfo,
+  phases: vec MatchPhase,
+  user_points: vec struct { actor_id, u32 },
+};
+
+type MatchPhase = struct {
+  name: str,
+  start_time: u64,
+  end_time: u64,
+};
+
 constructor {
-  New : ();
+  New : (kyc_contract: actor_id, final_prize_distributor: actor_id);
 };
 
 service Service {
-  ChangeNumber : (number: u64) -> str;
-  query GetNumber : () -> u64;
+  /// Accept a bet (may only before kick_off). Must validate age via KYC contract externally. Fee/final_prize logic applies.
+  Bet : (match_id: u64, selected: Outcome) -> BolaoEvent;
+  /// Finalize proposed result (must be from owner or designated oracle admin).
+  FinalizeResult : (match_id: u64) -> BolaoEvent;
+  /// Begin winner payout for match: pays in safe chunks; one call pays up to MAX_PAYOUT_CHUNK total. Repeatable.
+  PayoutWinners : (match_id: u64) -> vec BolaoEvent;
+  /// Propose result (anyone with oracle rights can call).
+  ProposeResult : (match_id: u64, outcome: Outcome) -> BolaoEvent;
+  RegisterMatch : (phase: str, home: str, away: str, kick_off: u64) -> BolaoEvent;
+  RegisterPhase : (phase_name: str, start_time: u64, end_time: u64) -> BolaoEvent;
+  /// Send accumulated 'final prize' to FinalPrizeDistributorActor, then resets final_prize_accum.
+  SendFinalPrize : () -> BolaoEvent;
+  /// Owner withdraws accumulated fees.
+  WithdrawFees : () -> BolaoEvent;
+  /// Query a match by id
+  query QueryMatch : (match_id: u64) -> opt MatchInfo;
+  /// Query all matches for a phase
+  query QueryMatchesByPhase : (phase: str) -> vec MatchInfo;
+  /// Query contract global state
+  query QueryState : () -> IoBolaoState;
+  /// Query points for a specific user
+  query QueryUserPoints : (user: actor_id) -> u32;
+
+  events {
+    PhaseRegistered: str;
+    MatchRegistered: struct {
+      u64,
+      str,
+      str,
+      str,
+      u64,
+    };
+    BetAccepted: struct {
+      actor_id,
+      u64,
+      Outcome,
+      u128,
+    };
+    ResultProposed: struct {
+      u64,
+      Outcome,
+      actor_id,
+    };
+    ResultFinalized: struct {
+      u64,
+      Outcome,
+    };
+    WinnerPaid: struct {
+      u64,
+      actor_id,
+      u128,
+    };
+    FinalPrizeSent: struct {
+      u128,
+      actor_id,
+    };
+    FeeWithdrawn: struct {
+      u128,
+      actor_id,
+    };
+  }
 };
 

@@ -16,7 +16,6 @@ impl Program {
         Self
     }
 
-    #[route("Bolaocore")]
     pub fn service(&self) -> Service {
         Service::new()
     }

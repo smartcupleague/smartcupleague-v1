@@ -3,24 +3,33 @@
 use sails_rs::collections::BTreeMap;
 #[allow(unused_imports)]
 use sails_rs::{
+    String,
     calls::{Activation, Call, Query, Remoting, RemotingAction},
     prelude::*,
-    String,
 };
 pub struct TemplateFactory<R> {
     #[allow(dead_code)]
     remoting: R,
 }
+
 impl<R> TemplateFactory<R> {
     #[allow(unused)]
     pub fn new(remoting: R) -> Self {
         Self { remoting }
     }
 }
+
 impl<R: Remoting + Clone> traits::TemplateFactory for TemplateFactory<R> {
     type Args = R::Args;
-    fn new(&self) -> impl Activation<Args = R::Args> {
-        RemotingAction::<_, template_factory::io::New>::new(self.remoting.clone(), ())
+    fn new(
+        &self,
+        kyc_contract: ActorId,
+        final_prize_distributor: ActorId,
+    ) -> impl Activation<Args = R::Args> {
+        RemotingAction::<_, template_factory::io::New>::new(
+            self.remoting.clone(),
+            (kyc_contract, final_prize_distributor),
+        )
     }
 }
 
@@ -30,15 +39,17 @@ pub mod template_factory {
         use super::*;
         use sails_rs::calls::ActionIo;
         pub struct New(());
+
         impl New {
             #[allow(dead_code)]
-            pub fn encode_call() -> Vec<u8> {
-                <New as ActionIo>::encode_call(&())
+            pub fn encode_call(kyc_contract: ActorId, final_prize_distributor: ActorId) -> Vec<u8> {
+                <New as ActionIo>::encode_call(&(kyc_contract, final_prize_distributor))
             }
         }
+
         impl ActionIo for New {
             const ROUTE: &'static [u8] = &[12, 78, 101, 119];
-            type Params = ();
+            type Params = (ActorId, ActorId);
             type Reply = ();
         }
     }
@@ -46,18 +57,94 @@ pub mod template_factory {
 pub struct Service<R> {
     remoting: R,
 }
+
 impl<R> Service<R> {
     pub fn new(remoting: R) -> Self {
         Self { remoting }
     }
 }
+
 impl<R: Remoting + Clone> traits::Service for Service<R> {
     type Args = R::Args;
-    fn change_number(&mut self, number: u64) -> impl Call<Output = String, Args = R::Args> {
-        RemotingAction::<_, service::io::ChangeNumber>::new(self.remoting.clone(), number)
+    /// Accept a bet (may only before kick_off). Must validate age via KYC contract externally. Fee/final_prize logic applies.
+    fn bet(
+        &mut self,
+        match_id: u64,
+        selected: Outcome,
+    ) -> impl Call<Output = BolaoEvent, Args = R::Args> {
+        RemotingAction::<_, service::io::Bet>::new(self.remoting.clone(), (match_id, selected))
     }
-    fn get_number(&self) -> impl Query<Output = u64, Args = R::Args> {
-        RemotingAction::<_, service::io::GetNumber>::new(self.remoting.clone(), ())
+    /// Finalize proposed result (must be from owner or designated oracle admin).
+    fn finalize_result(&mut self, match_id: u64) -> impl Call<Output = BolaoEvent, Args = R::Args> {
+        RemotingAction::<_, service::io::FinalizeResult>::new(self.remoting.clone(), match_id)
+    }
+    /// Begin winner payout for match: pays in safe chunks; one call pays up to MAX_PAYOUT_CHUNK total. Repeatable.
+    fn payout_winners(
+        &mut self,
+        match_id: u64,
+    ) -> impl Call<Output = Vec<BolaoEvent>, Args = R::Args> {
+        RemotingAction::<_, service::io::PayoutWinners>::new(self.remoting.clone(), match_id)
+    }
+    /// Propose result (anyone with oracle rights can call).
+    fn propose_result(
+        &mut self,
+        match_id: u64,
+        outcome: Outcome,
+    ) -> impl Call<Output = BolaoEvent, Args = R::Args> {
+        RemotingAction::<_, service::io::ProposeResult>::new(
+            self.remoting.clone(),
+            (match_id, outcome),
+        )
+    }
+    fn register_match(
+        &mut self,
+        phase: String,
+        home: String,
+        away: String,
+        kick_off: u64,
+    ) -> impl Call<Output = BolaoEvent, Args = R::Args> {
+        RemotingAction::<_, service::io::RegisterMatch>::new(
+            self.remoting.clone(),
+            (phase, home, away, kick_off),
+        )
+    }
+    fn register_phase(
+        &mut self,
+        phase_name: String,
+        start_time: u64,
+        end_time: u64,
+    ) -> impl Call<Output = BolaoEvent, Args = R::Args> {
+        RemotingAction::<_, service::io::RegisterPhase>::new(
+            self.remoting.clone(),
+            (phase_name, start_time, end_time),
+        )
+    }
+    /// Send accumulated 'final prize' to FinalPrizeDistributorActor, then resets final_prize_accum.
+    fn send_final_prize(&mut self) -> impl Call<Output = BolaoEvent, Args = R::Args> {
+        RemotingAction::<_, service::io::SendFinalPrize>::new(self.remoting.clone(), ())
+    }
+    /// Owner withdraws accumulated fees.
+    fn withdraw_fees(&mut self) -> impl Call<Output = BolaoEvent, Args = R::Args> {
+        RemotingAction::<_, service::io::WithdrawFees>::new(self.remoting.clone(), ())
+    }
+    /// Query a match by id
+    fn query_match(&self, match_id: u64) -> impl Query<Output = Option<MatchInfo>, Args = R::Args> {
+        RemotingAction::<_, service::io::QueryMatch>::new(self.remoting.clone(), match_id)
+    }
+    /// Query all matches for a phase
+    fn query_matches_by_phase(
+        &self,
+        phase: String,
+    ) -> impl Query<Output = Vec<MatchInfo>, Args = R::Args> {
+        RemotingAction::<_, service::io::QueryMatchesByPhase>::new(self.remoting.clone(), phase)
+    }
+    /// Query contract global state
+    fn query_state(&self) -> impl Query<Output = IoBolaoState, Args = R::Args> {
+        RemotingAction::<_, service::io::QueryState>::new(self.remoting.clone(), ())
+    }
+    /// Query points for a specific user
+    fn query_user_points(&self, user: ActorId) -> impl Query<Output = u32, Args = R::Args> {
+        RemotingAction::<_, service::io::QueryUserPoints>::new(self.remoting.clone(), user)
     }
 }
 
@@ -67,36 +154,314 @@ pub mod service {
     pub mod io {
         use super::*;
         use sails_rs::calls::ActionIo;
-        pub struct ChangeNumber(());
-        impl ChangeNumber {
+        pub struct Bet(());
+
+        impl Bet {
             #[allow(dead_code)]
-            pub fn encode_call(number: u64) -> Vec<u8> {
-                <ChangeNumber as ActionIo>::encode_call(&number)
+            pub fn encode_call(match_id: u64, selected: super::Outcome) -> Vec<u8> {
+                <Bet as ActionIo>::encode_call(&(match_id, selected))
             }
         }
-        impl ActionIo for ChangeNumber {
+
+        impl ActionIo for Bet {
+            const ROUTE: &'static [u8] = &[28, 83, 101, 114, 118, 105, 99, 101, 12, 66, 101, 116];
+            type Params = (u64, super::Outcome);
+            type Reply = super::BolaoEvent;
+        }
+        pub struct FinalizeResult(());
+
+        impl FinalizeResult {
+            #[allow(dead_code)]
+            pub fn encode_call(match_id: u64) -> Vec<u8> {
+                <FinalizeResult as ActionIo>::encode_call(&match_id)
+            }
+        }
+
+        impl ActionIo for FinalizeResult {
             const ROUTE: &'static [u8] = &[
-                28, 83, 101, 114, 118, 105, 99, 101, 48, 67, 104, 97, 110, 103, 101, 78, 117, 109,
-                98, 101, 114,
+                28, 83, 101, 114, 118, 105, 99, 101, 56, 70, 105, 110, 97, 108, 105, 122, 101, 82,
+                101, 115, 117, 108, 116,
             ];
             type Params = u64;
-            type Reply = String;
+            type Reply = super::BolaoEvent;
         }
-        pub struct GetNumber(());
-        impl GetNumber {
+        pub struct PayoutWinners(());
+
+        impl PayoutWinners {
             #[allow(dead_code)]
-            pub fn encode_call() -> Vec<u8> {
-                <GetNumber as ActionIo>::encode_call(&())
+            pub fn encode_call(match_id: u64) -> Vec<u8> {
+                <PayoutWinners as ActionIo>::encode_call(&match_id)
             }
         }
-        impl ActionIo for GetNumber {
+
+        impl ActionIo for PayoutWinners {
             const ROUTE: &'static [u8] = &[
-                28, 83, 101, 114, 118, 105, 99, 101, 36, 71, 101, 116, 78, 117, 109, 98, 101, 114,
+                28, 83, 101, 114, 118, 105, 99, 101, 52, 80, 97, 121, 111, 117, 116, 87, 105, 110,
+                110, 101, 114, 115,
+            ];
+            type Params = u64;
+            type Reply = Vec<super::BolaoEvent>;
+        }
+        pub struct ProposeResult(());
+
+        impl ProposeResult {
+            #[allow(dead_code)]
+            pub fn encode_call(match_id: u64, outcome: super::Outcome) -> Vec<u8> {
+                <ProposeResult as ActionIo>::encode_call(&(match_id, outcome))
+            }
+        }
+
+        impl ActionIo for ProposeResult {
+            const ROUTE: &'static [u8] = &[
+                28, 83, 101, 114, 118, 105, 99, 101, 52, 80, 114, 111, 112, 111, 115, 101, 82, 101,
+                115, 117, 108, 116,
+            ];
+            type Params = (u64, super::Outcome);
+            type Reply = super::BolaoEvent;
+        }
+        pub struct RegisterMatch(());
+
+        impl RegisterMatch {
+            #[allow(dead_code)]
+            pub fn encode_call(
+                phase: String,
+                home: String,
+                away: String,
+                kick_off: u64,
+            ) -> Vec<u8> {
+                <RegisterMatch as ActionIo>::encode_call(&(phase, home, away, kick_off))
+            }
+        }
+
+        impl ActionIo for RegisterMatch {
+            const ROUTE: &'static [u8] = &[
+                28, 83, 101, 114, 118, 105, 99, 101, 52, 82, 101, 103, 105, 115, 116, 101, 114, 77,
+                97, 116, 99, 104,
+            ];
+            type Params = (String, String, String, u64);
+            type Reply = super::BolaoEvent;
+        }
+        pub struct RegisterPhase(());
+
+        impl RegisterPhase {
+            #[allow(dead_code)]
+            pub fn encode_call(phase_name: String, start_time: u64, end_time: u64) -> Vec<u8> {
+                <RegisterPhase as ActionIo>::encode_call(&(phase_name, start_time, end_time))
+            }
+        }
+
+        impl ActionIo for RegisterPhase {
+            const ROUTE: &'static [u8] = &[
+                28, 83, 101, 114, 118, 105, 99, 101, 52, 82, 101, 103, 105, 115, 116, 101, 114, 80,
+                104, 97, 115, 101,
+            ];
+            type Params = (String, u64, u64);
+            type Reply = super::BolaoEvent;
+        }
+        pub struct SendFinalPrize(());
+
+        impl SendFinalPrize {
+            #[allow(dead_code)]
+            pub fn encode_call() -> Vec<u8> {
+                <SendFinalPrize as ActionIo>::encode_call(&())
+            }
+        }
+
+        impl ActionIo for SendFinalPrize {
+            const ROUTE: &'static [u8] = &[
+                28, 83, 101, 114, 118, 105, 99, 101, 56, 83, 101, 110, 100, 70, 105, 110, 97, 108,
+                80, 114, 105, 122, 101,
             ];
             type Params = ();
-            type Reply = u64;
+            type Reply = super::BolaoEvent;
+        }
+        pub struct WithdrawFees(());
+
+        impl WithdrawFees {
+            #[allow(dead_code)]
+            pub fn encode_call() -> Vec<u8> {
+                <WithdrawFees as ActionIo>::encode_call(&())
+            }
+        }
+
+        impl ActionIo for WithdrawFees {
+            const ROUTE: &'static [u8] = &[
+                28, 83, 101, 114, 118, 105, 99, 101, 48, 87, 105, 116, 104, 100, 114, 97, 119, 70,
+                101, 101, 115,
+            ];
+            type Params = ();
+            type Reply = super::BolaoEvent;
+        }
+        pub struct QueryMatch(());
+
+        impl QueryMatch {
+            #[allow(dead_code)]
+            pub fn encode_call(match_id: u64) -> Vec<u8> {
+                <QueryMatch as ActionIo>::encode_call(&match_id)
+            }
+        }
+
+        impl ActionIo for QueryMatch {
+            const ROUTE: &'static [u8] = &[
+                28, 83, 101, 114, 118, 105, 99, 101, 40, 81, 117, 101, 114, 121, 77, 97, 116, 99,
+                104,
+            ];
+            type Params = u64;
+            type Reply = Option<super::MatchInfo>;
+        }
+        pub struct QueryMatchesByPhase(());
+
+        impl QueryMatchesByPhase {
+            #[allow(dead_code)]
+            pub fn encode_call(phase: String) -> Vec<u8> {
+                <QueryMatchesByPhase as ActionIo>::encode_call(&phase)
+            }
+        }
+
+        impl ActionIo for QueryMatchesByPhase {
+            const ROUTE: &'static [u8] = &[
+                28, 83, 101, 114, 118, 105, 99, 101, 76, 81, 117, 101, 114, 121, 77, 97, 116, 99,
+                104, 101, 115, 66, 121, 80, 104, 97, 115, 101,
+            ];
+            type Params = String;
+            type Reply = Vec<super::MatchInfo>;
+        }
+        pub struct QueryState(());
+
+        impl QueryState {
+            #[allow(dead_code)]
+            pub fn encode_call() -> Vec<u8> {
+                <QueryState as ActionIo>::encode_call(&())
+            }
+        }
+
+        impl ActionIo for QueryState {
+            const ROUTE: &'static [u8] = &[
+                28, 83, 101, 114, 118, 105, 99, 101, 40, 81, 117, 101, 114, 121, 83, 116, 97, 116,
+                101,
+            ];
+            type Params = ();
+            type Reply = super::IoBolaoState;
+        }
+        pub struct QueryUserPoints(());
+
+        impl QueryUserPoints {
+            #[allow(dead_code)]
+            pub fn encode_call(user: ActorId) -> Vec<u8> {
+                <QueryUserPoints as ActionIo>::encode_call(&user)
+            }
+        }
+
+        impl ActionIo for QueryUserPoints {
+            const ROUTE: &'static [u8] = &[
+                28, 83, 101, 114, 118, 105, 99, 101, 60, 81, 117, 101, 114, 121, 85, 115, 101, 114,
+                80, 111, 105, 110, 116, 115,
+            ];
+            type Params = ActorId;
+            type Reply = u32;
         }
     }
+
+    #[allow(dead_code)]
+    #[cfg(not(target_arch = "wasm32"))]
+    pub mod events {
+        use super::*;
+        use sails_rs::events::*;
+        #[derive(PartialEq, Debug, Encode, Decode)]
+        #[codec(crate = sails_rs::scale_codec)]
+        pub enum ServiceEvents {
+            PhaseRegistered(String),
+            MatchRegistered((u64, String, String, String, u64)),
+            BetAccepted((ActorId, u64, Outcome, u128)),
+            ResultProposed((u64, Outcome, ActorId)),
+            ResultFinalized((u64, Outcome)),
+            WinnerPaid((u64, ActorId, u128)),
+            FinalPrizeSent((u128, ActorId)),
+            FeeWithdrawn((u128, ActorId)),
+        }
+        impl EventIo for ServiceEvents {
+            const ROUTE: &'static [u8] = &[28, 83, 101, 114, 118, 105, 99, 101];
+            const EVENT_NAMES: &'static [&'static [u8]] = &[
+                &[
+                    60, 80, 104, 97, 115, 101, 82, 101, 103, 105, 115, 116, 101, 114, 101, 100,
+                ],
+                &[
+                    60, 77, 97, 116, 99, 104, 82, 101, 103, 105, 115, 116, 101, 114, 101, 100,
+                ],
+                &[44, 66, 101, 116, 65, 99, 99, 101, 112, 116, 101, 100],
+                &[
+                    56, 82, 101, 115, 117, 108, 116, 80, 114, 111, 112, 111, 115, 101, 100,
+                ],
+                &[
+                    60, 82, 101, 115, 117, 108, 116, 70, 105, 110, 97, 108, 105, 122, 101, 100,
+                ],
+                &[40, 87, 105, 110, 110, 101, 114, 80, 97, 105, 100],
+                &[
+                    56, 70, 105, 110, 97, 108, 80, 114, 105, 122, 101, 83, 101, 110, 116,
+                ],
+                &[48, 70, 101, 101, 87, 105, 116, 104, 100, 114, 97, 119, 110],
+            ];
+            type Event = Self;
+        }
+
+        pub fn listener<R: Listener<Vec<u8>>>(remoting: R) -> impl Listener<ServiceEvents> {
+            RemotingListener::<_, ServiceEvents>::new(remoting)
+        }
+    }
+}
+#[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub enum Outcome {
+    Home,
+    Draw,
+    Away,
+}
+#[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct MatchInfo {
+    pub match_id: u64,
+    pub phase: String,
+    pub home: String,
+    pub away: String,
+    pub kick_off: u64,
+    pub result: ResultStatus,
+    pub pool_home: u128,
+    pub pool_draw: u128,
+    pub pool_away: u128,
+    pub has_bets: bool,
+    pub participants: Vec<ActorId>,
+}
+#[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub enum ResultStatus {
+    Unresolved,
+    Proposed { outcome: Outcome, oracle: ActorId },
+    Finalized { outcome: Outcome },
+}
+/// Query replies
+#[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct IoBolaoState {
+    pub owner: ActorId,
+    pub kyc_contract: ActorId,
+    pub final_prize_distributor: ActorId,
+    pub fee_accum: u128,
+    pub final_prize_accum: u128,
+    pub matches: Vec<MatchInfo>,
+    pub phases: Vec<MatchPhase>,
+    pub user_points: Vec<(ActorId, u32)>,
+}
+#[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct MatchPhase {
+    pub name: String,
+    pub start_time: u64,
+    pub end_time: u64,
 }
 
 pub mod traits {
@@ -106,13 +471,58 @@ pub mod traits {
         type Args;
         #[allow(clippy::new_ret_no_self)]
         #[allow(clippy::wrong_self_convention)]
-        fn new(&self) -> impl Activation<Args = Self::Args>;
+        fn new(
+            &self,
+            kyc_contract: ActorId,
+            final_prize_distributor: ActorId,
+        ) -> impl Activation<Args = Self::Args>;
     }
 
     #[allow(clippy::type_complexity)]
     pub trait Service {
         type Args;
-        fn change_number(&mut self, number: u64) -> impl Call<Output = String, Args = Self::Args>;
-        fn get_number(&self) -> impl Query<Output = u64, Args = Self::Args>;
+        fn bet(
+            &mut self,
+            match_id: u64,
+            selected: Outcome,
+        ) -> impl Call<Output = BolaoEvent, Args = Self::Args>;
+        fn finalize_result(
+            &mut self,
+            match_id: u64,
+        ) -> impl Call<Output = BolaoEvent, Args = Self::Args>;
+        fn payout_winners(
+            &mut self,
+            match_id: u64,
+        ) -> impl Call<Output = Vec<BolaoEvent>, Args = Self::Args>;
+        fn propose_result(
+            &mut self,
+            match_id: u64,
+            outcome: Outcome,
+        ) -> impl Call<Output = BolaoEvent, Args = Self::Args>;
+        fn register_match(
+            &mut self,
+            phase: String,
+            home: String,
+            away: String,
+            kick_off: u64,
+        ) -> impl Call<Output = BolaoEvent, Args = Self::Args>;
+        fn register_phase(
+            &mut self,
+            phase_name: String,
+            start_time: u64,
+            end_time: u64,
+        ) -> impl Call<Output = BolaoEvent, Args = Self::Args>;
+        fn send_final_prize(&mut self) -> impl Call<Output = BolaoEvent, Args = Self::Args>;
+        fn withdraw_fees(&mut self) -> impl Call<Output = BolaoEvent, Args = Self::Args>;
+        fn query_match(
+            &self,
+            match_id: u64,
+        ) -> impl Query<Output = Option<MatchInfo>, Args = Self::Args>;
+        fn query_matches_by_phase(
+            &self,
+            phase: String,
+        ) -> impl Query<Output = Vec<MatchInfo>, Args = Self::Args>;
+        fn query_state(&self) -> impl Query<Output = IoBolaoState, Args = Self::Args>;
+        fn query_user_points(&self, user: ActorId) -> impl Query<Output = u32, Args = Self::Args>;
     }
 }
