@@ -1,4 +1,4 @@
-# SmartCup League — Smart Contracts & Toolkit
+# SmartCup League — Smart Contract Repo
 
 SmartCup League is a simple, fair World Cup prediction game built on crypto.
 Place one prediction position per match, earn points for good guesses, and compete for two prizes at once:
