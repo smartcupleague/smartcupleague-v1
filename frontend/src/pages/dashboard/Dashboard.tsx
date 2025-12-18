@@ -72,8 +72,8 @@ const Dashboard: React.FC = () => {
           <div className="scb-main__topbar-left">
             <h1 className="scb-main__title">
               {activeSection === 'home' && 'Overview'}
-              {activeSection === 'my-bets' && 'My Bets'}
-              {activeSection === 'all-bets' && 'All Bets'}
+              {activeSection === 'my-bets' && 'My Predictions'}
+              {activeSection === 'all-bets' && 'All Predictions'}
               {activeSection === 'all-cups' && 'All Cups'}
               {activeSection === 'dao' && 'DAO & Governance'}
               {activeSection === 'settings' && 'Settings'}

@@ -241,12 +241,12 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2 }) => {
 
       toast.info(`Transaction included in block ${blockHash}`);
       await response();
-      toast.success('Bet placed successfully ✅');
+      toast.success('Prediction placed successfully ✅');
 
       setSelected(null);
       setTimeout(fetchState, 900);
     } catch {
-      toast.error('Bet failed');
+      toast.error('Prediction failed');
     } finally {
       setTxLoading(false);
     }
