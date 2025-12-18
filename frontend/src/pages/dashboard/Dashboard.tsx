@@ -49,7 +49,7 @@ const Dashboard: React.FC = () => {
       case 'home':
         return <DashboardHome />;
       case 'my-bets':
-        return <div className="scb-panel-placeholder">My Bets – coming soon.</div>;
+        return <div className="scb-panel-placeholder">My Predictions – coming soon.</div>;
       case 'all-bets':
         return <MatchesTableComponent/>;
       case 'all-cups':
