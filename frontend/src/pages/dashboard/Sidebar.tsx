@@ -16,8 +16,8 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { key: 'home', label: 'Home', icon: <span className="scb-icon">🏠</span> },
-  { key: 'my-bets', label: 'My Bets', icon: <span className="scb-icon">🎯</span> },
-  { key: 'all-bets', label: 'All Bets', icon: <span className="scb-icon">📊</span> },
+  { key: 'my-bets', label: 'My Predictions', icon: <span className="scb-icon">🎯</span> },
+  { key: 'all-bets', label: 'All Predictions', icon: <span className="scb-icon">📊</span> },
   { key: 'all-cups', label: 'All Cups', icon: <span className="scb-icon">🏆</span> },
   { key: 'dao', label: 'DAO', icon: <span className="scb-icon">⚙️</span> },
 ];
