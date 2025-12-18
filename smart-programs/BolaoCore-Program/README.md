@@ -37,7 +37,7 @@ No house edge, no hidden odds. Your stake goes into shared prize pools, outcomes
 
  - Your football instincts.
 
-# Features
+## Features
 
 Per-match prediction position in USDC; settlement in scalable slices
 
