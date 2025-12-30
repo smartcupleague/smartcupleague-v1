@@ -6,10 +6,12 @@ export type ActorId = string;
 
 export type Outcome = 'Home' | 'Draw' | 'Away';
 
-export type ResultStatus =
-  | 'Unresolved'
-  | { Proposed: { outcome: Outcome; oracle: ActorId } }
-  | { Finalized: { outcome: Outcome } };
+export interface UserBetView {
+  match_id: number | string | bigint;
+  selected: Outcome;
+  amount: number | string | bigint;
+  paid: boolean;
+}
 
 export interface MatchInfo {
   match_id: number | string | bigint;
@@ -24,6 +26,11 @@ export interface MatchInfo {
   has_bets: boolean;
   participants: ActorId[];
 }
+
+export type ResultStatus =
+  | { Unresolved: null }
+  | { Proposed: { outcome: Outcome; oracle: ActorId } }
+  | { Finalized: { outcome: Outcome } };
 
 export interface IoBolaoState {
   owner: ActorId;
@@ -42,27 +49,52 @@ export interface MatchPhase {
   end_time: number | string | bigint;
 }
 
-export type BolaoEvent =
-  | { PhaseRegistered: string }
-  | { MatchRegistered: [number | string | bigint, string, string, string, number | string | bigint] }
-  | { BetAccepted: [ActorId, number | string | bigint, Outcome, number | string | bigint] }
-  | { ResultProposed: [number | string | bigint, Outcome, ActorId] }
-  | { ResultFinalized: [number | string | bigint, Outcome] }
-  | { WinnerPaid: [number | string | bigint, ActorId, number | string | bigint] }
-  | { FinalPrizeSent: [number | string | bigint, ActorId] }
-  | { FeeWithdrawn: [number | string | bigint, ActorId] };
+export type PhaseRegisteredEvent = string;
+
+export type MatchRegisteredEvent = [number | string | bigint, string, string, string, number | string | bigint];
+
+export interface BetAcceptedEvent {
+  actor_id: ActorId;
+  match_id: number | string | bigint;
+  selected: Outcome;
+  amount: number | string | bigint;
+}
+
+export interface ResultProposedEvent {
+  match_id: number | string | bigint;
+  outcome: Outcome;
+  oracle: ActorId;
+}
+
+export interface ResultFinalizedEvent {
+  match_id: number | string | bigint;
+  outcome: Outcome;
+}
+
+export interface WinnerPaidEvent {
+  match_id: number | string | bigint;
+  winner: ActorId;
+  amount: number | string | bigint;
+}
+
+export interface FinalPrizeSentEvent {
+  amount: number | string | bigint;
+  recipient: ActorId;
+}
+
+export interface FeeWithdrawnEvent {
+  amount: number | string | bigint;
+  recipient: ActorId;
+}
 
 const types = {
   Outcome: { _enum: ['Home', 'Draw', 'Away'] },
-  ResultStatus: {
-    _enum: {
-      Unresolved: 'Null',
-      Proposed: 'ResultStatusProposed',
-      Finalized: 'ResultStatusFinalized',
-    },
+  UserBetView: {
+    match_id: 'u64',
+    selected: 'Outcome',
+    amount: 'u128',
+    paid: 'bool',
   },
-  ResultStatusProposed: { outcome: 'Outcome', oracle: '[u8;32]' },
-  ResultStatusFinalized: { outcome: 'Outcome' },
   MatchInfo: {
     match_id: 'u64',
     phase: 'String',
@@ -75,6 +107,13 @@ const types = {
     pool_away: 'u128',
     has_bets: 'bool',
     participants: 'Vec<[u8;32]>',
+  },
+  ResultStatus: {
+    _enum: {
+      Unresolved: 'Null',
+      Proposed: '{"outcome":"Outcome","oracle":"[u8;32]"}',
+      Finalized: '{"outcome":"Outcome"}',
+    },
   },
   IoBolaoState: {
     owner: '[u8;32]',
@@ -91,14 +130,36 @@ const types = {
     start_time: 'u64',
     end_time: 'u64',
   },
-  PhaseRegistered: 'String',
+  BetAccepted: {
+    actor_id: '[u8;32]',
+    match_id: 'u64',
+    selected: 'Outcome',
+    amount: 'u128',
+  },
+  ResultProposed: {
+    match_id: 'u64',
+    outcome: 'Outcome',
+    oracle: '[u8;32]',
+  },
+  ResultFinalized: {
+    match_id: 'u64',
+    outcome: 'Outcome',
+  },
+  WinnerPaid: {
+    match_id: 'u64',
+    winner: '[u8;32]',
+    amount: 'u128',
+  },
+  FinalPrizeSent: {
+    amount: 'u128',
+    recipient: '[u8;32]',
+  },
+  FeeWithdrawn: {
+    amount: 'u128',
+    recipient: '[u8;32]',
+  },
   MatchRegistered: '(u64, String, String, String, u64)',
-  BetAccepted: '([u8;32], u64, Outcome, u128)',
-  ResultProposed: '(u64, Outcome, [u8;32])',
-  ResultFinalized: '(u64, Outcome)',
-  WinnerPaid: '(u64, [u8;32], u128)',
-  FinalPrizeSent: '(u128, [u8;32])',
-  FeeWithdrawn: '(u128, [u8;32])',
+  PhaseRegistered: 'String',
   BolaoEvent: {
     _enum: {
       PhaseRegistered: 'PhaseRegistered',
@@ -112,6 +173,18 @@ const types = {
     },
   },
 };
+
+export type BolaoEvent =
+  | { PhaseRegistered: PhaseRegisteredEvent }
+  | { MatchRegistered: MatchRegisteredEvent }
+  | { BetAccepted: BetAcceptedEvent }
+  | { ResultProposed: ResultProposedEvent }
+  | { ResultFinalized: ResultFinalizedEvent }
+  | { WinnerPaid: WinnerPaidEvent }
+  | { FinalPrizeSent: FinalPrizeSentEvent }
+  | { FeeWithdrawn: FeeWithdrawnEvent };
+
+const withAt = (atBlock?: `0x${string}`) => (atBlock ? { at: atBlock } : {});
 
 export class Program {
   public readonly registry: TypeRegistry;
@@ -209,7 +282,12 @@ export class Service {
     );
   }
 
-  public registerMatch(phase: string, home: string, away: string, kick_off: number | string | bigint): TransactionBuilder<BolaoEvent> {
+  public registerMatch(
+    phase: string,
+    home: string,
+    away: string,
+    kick_off: number | string | bigint,
+  ): TransactionBuilder<BolaoEvent> {
     return new TransactionBuilder<BolaoEvent>(
       this._program.api,
       this._program.registry,
@@ -221,7 +299,11 @@ export class Service {
     );
   }
 
-  public registerPhase(phase_name: string, start_time: number | string | bigint, end_time: number | string | bigint): TransactionBuilder<BolaoEvent> {
+  public registerPhase(
+    phase_name: string,
+    start_time: number | string | bigint,
+    end_time: number | string | bigint,
+  ): TransactionBuilder<BolaoEvent> {
     return new TransactionBuilder<BolaoEvent>(
       this._program.api,
       this._program.registry,
@@ -257,13 +339,15 @@ export class Service {
     );
   }
 
-  public async queryMatch(
-    match_id: number | string | bigint,
+  public async queryBetsByUser(
+    user: ActorId,
     originAddress?: string,
     value?: number | string | bigint,
     atBlock?: `0x${string}`,
-  ): Promise<MatchInfo | null> {
-    const payload = this._program.registry.createType('(String, String, u64)', ['Service', 'QueryMatch', match_id]).toHex();
+  ): Promise<UserBetView[]> {
+    const payload = this._program.registry
+      .createType('(String, String, [u8;32])', ['Service', 'QueryBetsByUser', user])
+      .toHex();
 
     const reply = await this._program.api.message.calculateReply({
       destination: this._program.programId,
@@ -271,13 +355,42 @@ export class Service {
       payload,
       value: value ?? 0,
       gasLimit: this._program.api.blockGasLimit.toBigInt(),
-      at: atBlock ?? undefined,
+      ...withAt(atBlock),
     });
 
-    if (!reply.code.isSuccess) throw new Error(this._program.registry.createType('String', reply.payload).toString());
+    if (!reply.code.isSuccess) {
+      throw new Error(this._program.registry.createType('String', reply.payload).toString());
+    }
+
+    const result = this._program.registry.createType('(String, String, Vec<UserBetView>)', reply.payload);
+    return result[2].toJSON() as unknown as UserBetView[]; // ✅
+  }
+
+  public async queryMatch(
+    match_id: number | string | bigint,
+    originAddress?: string,
+    value?: number | string | bigint,
+    atBlock?: `0x${string}`,
+  ): Promise<MatchInfo | null> {
+    const payload = this._program.registry
+      .createType('(String, String, u64)', ['Service', 'QueryMatch', match_id])
+      .toHex();
+
+    const reply = await this._program.api.message.calculateReply({
+      destination: this._program.programId,
+      origin: originAddress ? decodeAddress(originAddress) : ZERO_ADDRESS,
+      payload,
+      value: value ?? 0,
+      gasLimit: this._program.api.blockGasLimit.toBigInt(),
+      ...withAt(atBlock),
+    });
+
+    if (!reply.code.isSuccess) {
+      throw new Error(this._program.registry.createType('String', reply.payload).toString());
+    }
 
     const result = this._program.registry.createType('(String, String, Option<MatchInfo>)', reply.payload);
-    return result[2].toJSON() as unknown as MatchInfo | null;
+    return result[2].toJSON() as unknown as MatchInfo | null; // ✅
   }
 
   public async queryMatchesByPhase(
@@ -296,22 +409,25 @@ export class Service {
       payload,
       value: value ?? 0,
       gasLimit: this._program.api.blockGasLimit.toBigInt(),
-      at: atBlock ?? undefined, // ✅ FIX: no null
+      ...withAt(atBlock),
     });
 
-    if (!reply.code.isSuccess) throw new Error(this._program.registry.createType('String', reply.payload).toString());
+    if (!reply.code.isSuccess) {
+      throw new Error(this._program.registry.createType('String', reply.payload).toString());
+    }
 
     const result = this._program.registry.createType('(String, String, Vec<MatchInfo>)', reply.payload);
-    return result[2].toJSON() as unknown as MatchInfo[];
+    return result[2].toJSON() as unknown as MatchInfo[]; // ✅
   }
 
-  // ✅ FIX: ahora puede devolver null (en vez de inventar IoBolaoState incompleto)
   public async queryState(
     originAddress?: string,
     value?: number | string | bigint,
     atBlock?: `0x${string}`,
-  ): Promise<IoBolaoState | null> {
-    const payload = this._program.registry.createType('(String, String)', ['Service', 'QueryState']).toHex();
+  ): Promise<IoBolaoState> {
+    const payload = this._program.registry
+      .createType('(String, String)', ['Service', 'QueryState'])
+      .toHex();
 
     const reply = await this._program.api.message.calculateReply({
       destination: this._program.programId,
@@ -319,13 +435,15 @@ export class Service {
       payload,
       value: value ?? 0,
       gasLimit: this._program.api.blockGasLimit.toBigInt(),
-      at: atBlock ?? undefined,
+      ...withAt(atBlock),
     });
 
-    if (!reply.code.isSuccess) throw new Error(this._program.registry.createType('String', reply.payload).toString());
+    if (!reply.code.isSuccess) {
+      throw new Error(this._program.registry.createType('String', reply.payload).toString());
+    }
 
     const result = this._program.registry.createType('(String, String, IoBolaoState)', reply.payload);
-    return result[2].toJSON() as unknown as IoBolaoState;
+    return result[2].toJSON() as unknown as IoBolaoState; // ✅
   }
 
   public async queryUserPoints(
@@ -344,44 +462,45 @@ export class Service {
       payload,
       value: value ?? 0,
       gasLimit: this._program.api.blockGasLimit.toBigInt(),
-      at: atBlock ?? undefined,
+      ...withAt(atBlock),
     });
 
-    if (!reply.code.isSuccess) throw new Error(this._program.registry.createType('String', reply.payload).toString());
+    if (!reply.code.isSuccess) {
+      throw new Error(this._program.registry.createType('String', reply.payload).toString());
+    }
 
     const result = this._program.registry.createType('(String, String, u32)', reply.payload);
     return result[2].toNumber();
   }
 
-  // --- subscribes (sin cambios) ---
-  public subscribeToPhaseRegisteredEvent(callback: (data: string) => void | Promise<void>): Promise<() => void> {
+  public subscribeToPhaseRegisteredEvent(
+    callback: (data: PhaseRegisteredEvent) => void | Promise<void>,
+  ): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
+
       const payload = message.payload.toHex();
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'PhaseRegistered') {
         void Promise.resolve(
-          callback(this._program.registry.createType('(String, String, PhaseRegistered)', message.payload)[2].toJSON() as string),
+          callback(
+            this._program.registry.createType('(String, String, PhaseRegistered)', message.payload)[2].toJSON() as unknown as PhaseRegisteredEvent
+          ),
         ).catch(console.error);
       }
     });
   }
 
   public subscribeToMatchRegisteredEvent(
-    callback: (data: [number | string | bigint, string, string, string, number | string | bigint]) => void | Promise<void>,
+    callback: (data: MatchRegisteredEvent) => void | Promise<void>,
   ): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
+
       const payload = message.payload.toHex();
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'MatchRegistered') {
         void Promise.resolve(
           callback(
-            this._program.registry.createType('(String, String, MatchRegistered)', message.payload)[2].toJSON() as [
-              number | string | bigint,
-              string,
-              string,
-              string,
-              number | string | bigint,
-            ],
+            this._program.registry.createType('(String, String, MatchRegistered)', message.payload)[2].toJSON() as unknown as MatchRegisteredEvent
           ),
         ).catch(console.error);
       }
@@ -389,20 +508,16 @@ export class Service {
   }
 
   public subscribeToBetAcceptedEvent(
-    callback: (data: [ActorId, number | string | bigint, Outcome, number | string | bigint]) => void | Promise<void>,
+    callback: (data: BetAcceptedEvent) => void | Promise<void>,
   ): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
+
       const payload = message.payload.toHex();
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'BetAccepted') {
         void Promise.resolve(
           callback(
-            this._program.registry.createType('(String, String, BetAccepted)', message.payload)[2].toJSON() as [
-              ActorId,
-              number | string | bigint,
-              Outcome,
-              number | string | bigint,
-            ],
+            this._program.registry.createType('(String, String, BetAccepted)', message.payload)[2].toJSON() as unknown as BetAcceptedEvent
           ),
         ).catch(console.error);
       }
@@ -410,19 +525,16 @@ export class Service {
   }
 
   public subscribeToResultProposedEvent(
-    callback: (data: [number | string | bigint, Outcome, ActorId]) => void | Promise<void>,
+    callback: (data: ResultProposedEvent) => void | Promise<void>,
   ): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
+
       const payload = message.payload.toHex();
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'ResultProposed') {
         void Promise.resolve(
           callback(
-            this._program.registry.createType('(String, String, ResultProposed)', message.payload)[2].toJSON() as [
-              number | string | bigint,
-              Outcome,
-              ActorId,
-            ],
+            this._program.registry.createType('(String, String, ResultProposed)', message.payload)[2].toJSON() as unknown as ResultProposedEvent
           ),
         ).catch(console.error);
       }
@@ -430,18 +542,16 @@ export class Service {
   }
 
   public subscribeToResultFinalizedEvent(
-    callback: (data: [number | string | bigint, Outcome]) => void | Promise<void>,
+    callback: (data: ResultFinalizedEvent) => void | Promise<void>,
   ): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
+
       const payload = message.payload.toHex();
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'ResultFinalized') {
         void Promise.resolve(
           callback(
-            this._program.registry.createType('(String, String, ResultFinalized)', message.payload)[2].toJSON() as [
-              number | string | bigint,
-              Outcome,
-            ],
+            this._program.registry.createType('(String, String, ResultFinalized)', message.payload)[2].toJSON() as unknown as ResultFinalizedEvent
           ),
         ).catch(console.error);
       }
@@ -449,19 +559,16 @@ export class Service {
   }
 
   public subscribeToWinnerPaidEvent(
-    callback: (data: [number | string | bigint, ActorId, number | string | bigint]) => void | Promise<void>,
+    callback: (data: WinnerPaidEvent) => void | Promise<void>,
   ): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
+
       const payload = message.payload.toHex();
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'WinnerPaid') {
         void Promise.resolve(
           callback(
-            this._program.registry.createType('(String, String, WinnerPaid)', message.payload)[2].toJSON() as [
-              number | string | bigint,
-              ActorId,
-              number | string | bigint,
-            ],
+            this._program.registry.createType('(String, String, WinnerPaid)', message.payload)[2].toJSON() as unknown as WinnerPaidEvent
           ),
         ).catch(console.error);
       }
@@ -469,18 +576,16 @@ export class Service {
   }
 
   public subscribeToFinalPrizeSentEvent(
-    callback: (data: [number | string | bigint, ActorId]) => void | Promise<void>,
+    callback: (data: FinalPrizeSentEvent) => void | Promise<void>,
   ): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
+
       const payload = message.payload.toHex();
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'FinalPrizeSent') {
         void Promise.resolve(
           callback(
-            this._program.registry.createType('(String, String, FinalPrizeSent)', message.payload)[2].toJSON() as [
-              number | string | bigint,
-              ActorId,
-            ],
+            this._program.registry.createType('(String, String, FinalPrizeSent)', message.payload)[2].toJSON() as unknown as FinalPrizeSentEvent
           ),
         ).catch(console.error);
       }
@@ -488,18 +593,16 @@ export class Service {
   }
 
   public subscribeToFeeWithdrawnEvent(
-    callback: (data: [number | string | bigint, ActorId]) => void | Promise<void>,
+    callback: (data: FeeWithdrawnEvent) => void | Promise<void>,
   ): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
+
       const payload = message.payload.toHex();
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'FeeWithdrawn') {
         void Promise.resolve(
           callback(
-            this._program.registry.createType('(String, String, FeeWithdrawn)', message.payload)[2].toJSON() as [
-              number | string | bigint,
-              ActorId,
-            ],
+            this._program.registry.createType('(String, String, FeeWithdrawn)', message.payload)[2].toJSON() as unknown as FeeWithdrawnEvent
           ),
         ).catch(console.error);
       }

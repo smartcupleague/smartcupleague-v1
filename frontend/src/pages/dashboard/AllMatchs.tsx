@@ -6,9 +6,12 @@ import { Program, Service } from '@/hocs/lib';
 import { useNavigate } from 'react-router-dom';
 import type { MatchInfo as MatchInfoChain, ResultStatus as ResultStatusChain, Outcome } from '@/hocs/lib';
 
-const PROGRAM_ID = '0x799e6a51d7fa45386ff7c771266995df0403f4ade22e697a25ae20a99060c21b';
+const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM;
 
-type MatchInfo = Omit<MatchInfoChain, 'match_id' | 'kick_off' | 'pool_home' | 'pool_draw' | 'pool_away' | 'result'> & {
+type MatchInfo = Omit<
+  MatchInfoChain,
+  'match_id' | 'kick_off' | 'pool_home' | 'pool_draw' | 'pool_away' | 'result'
+> & {
   match_id: string;
   kick_off: string;
   pool_home: string;
@@ -218,10 +221,20 @@ function formatOutcome(outcome: Outcome) {
   }
 }
 
+
+function isVariant<K extends string>(
+  value: unknown,
+  key: K
+): value is Record<K, unknown> {
+  return typeof value === 'object' && value !== null && key in value;
+}
+
 function resolveStatus(result: ResultStatusChain) {
-  if (result === 'Unresolved') return <MetaTag>Unresolved</MetaTag>;
-  if ('Proposed' in result) return <MetaTag>Proposed: {formatOutcome(result.Proposed.outcome)}</MetaTag>;
-  if ('Finalized' in result) return <MetaTag>Finalized: {formatOutcome(result.Finalized.outcome)}</MetaTag>;
+  if (isVariant(result, 'Unresolved')) return <MetaTag>Unresolved</MetaTag>;
+  if (isVariant(result, 'Proposed'))
+    return <MetaTag>Proposed: {formatOutcome((result as any).Proposed.outcome)}</MetaTag>;
+  if (isVariant(result, 'Finalized'))
+    return <MetaTag>Finalized: {formatOutcome((result as any).Finalized.outcome)}</MetaTag>;
   return <MetaTag>Unknown</MetaTag>;
 }
 
@@ -247,7 +260,7 @@ function formatAmount(val: string | number | bigint, decimals = 9) {
   return frac ? `${intVal.toString()}.${frac}` : intVal.toString();
 }
 
-/* component */
+
 export const MatchesTableComponent: React.FC = () => {
   const { api, isApiReady } = useApi();
   const navigate = useNavigate();
@@ -334,7 +347,7 @@ export const MatchesTableComponent: React.FC = () => {
 
                 <ActionCol>
                   <BetButton onClick={() => navigate(`/match/${m.match_id}`)}>
-                    Bet <span style={{ fontSize: '0.9rem' }}>→</span>
+                    Prediction <span style={{ fontSize: '0.9rem' }}>→</span>
                   </BetButton>
                 </ActionCol>
               </MatchItem>
