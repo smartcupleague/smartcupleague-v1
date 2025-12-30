@@ -66,7 +66,6 @@ impl<R> Service<R> {
 
 impl<R: Remoting + Clone> traits::Service for Service<R> {
     type Args = R::Args;
-    /// Accept a bet (may only before kick_off). Must validate age via KYC contract externally. Fee/final_prize logic applies.
     fn bet(
         &mut self,
         match_id: u64,
@@ -74,18 +73,15 @@ impl<R: Remoting + Clone> traits::Service for Service<R> {
     ) -> impl Call<Output = BolaoEvent, Args = R::Args> {
         RemotingAction::<_, service::io::Bet>::new(self.remoting.clone(), (match_id, selected))
     }
-    /// Finalize proposed result (must be from owner or designated oracle admin).
     fn finalize_result(&mut self, match_id: u64) -> impl Call<Output = BolaoEvent, Args = R::Args> {
         RemotingAction::<_, service::io::FinalizeResult>::new(self.remoting.clone(), match_id)
     }
-    /// Begin winner payout for match: pays in safe chunks; one call pays up to MAX_PAYOUT_CHUNK total. Repeatable.
     fn payout_winners(
         &mut self,
         match_id: u64,
     ) -> impl Call<Output = Vec<BolaoEvent>, Args = R::Args> {
         RemotingAction::<_, service::io::PayoutWinners>::new(self.remoting.clone(), match_id)
     }
-    /// Propose result (anyone with oracle rights can call).
     fn propose_result(
         &mut self,
         match_id: u64,
@@ -119,30 +115,30 @@ impl<R: Remoting + Clone> traits::Service for Service<R> {
             (phase_name, start_time, end_time),
         )
     }
-    /// Send accumulated 'final prize' to FinalPrizeDistributorActor, then resets final_prize_accum.
     fn send_final_prize(&mut self) -> impl Call<Output = BolaoEvent, Args = R::Args> {
         RemotingAction::<_, service::io::SendFinalPrize>::new(self.remoting.clone(), ())
     }
-    /// Owner withdraws accumulated fees.
     fn withdraw_fees(&mut self) -> impl Call<Output = BolaoEvent, Args = R::Args> {
         RemotingAction::<_, service::io::WithdrawFees>::new(self.remoting.clone(), ())
     }
-    /// Query a match by id
+    fn query_bets_by_user(
+        &self,
+        user: ActorId,
+    ) -> impl Query<Output = Vec<UserBetView>, Args = R::Args> {
+        RemotingAction::<_, service::io::QueryBetsByUser>::new(self.remoting.clone(), user)
+    }
     fn query_match(&self, match_id: u64) -> impl Query<Output = Option<MatchInfo>, Args = R::Args> {
         RemotingAction::<_, service::io::QueryMatch>::new(self.remoting.clone(), match_id)
     }
-    /// Query all matches for a phase
     fn query_matches_by_phase(
         &self,
         phase: String,
     ) -> impl Query<Output = Vec<MatchInfo>, Args = R::Args> {
         RemotingAction::<_, service::io::QueryMatchesByPhase>::new(self.remoting.clone(), phase)
     }
-    /// Query contract global state
     fn query_state(&self) -> impl Query<Output = IoBolaoState, Args = R::Args> {
         RemotingAction::<_, service::io::QueryState>::new(self.remoting.clone(), ())
     }
-    /// Query points for a specific user
     fn query_user_points(&self, user: ActorId) -> impl Query<Output = u32, Args = R::Args> {
         RemotingAction::<_, service::io::QueryUserPoints>::new(self.remoting.clone(), user)
     }
@@ -292,6 +288,23 @@ pub mod service {
             type Params = ();
             type Reply = super::BolaoEvent;
         }
+        pub struct QueryBetsByUser(());
+
+        impl QueryBetsByUser {
+            #[allow(dead_code)]
+            pub fn encode_call(user: ActorId) -> Vec<u8> {
+                <QueryBetsByUser as ActionIo>::encode_call(&user)
+            }
+        }
+
+        impl ActionIo for QueryBetsByUser {
+            const ROUTE: &'static [u8] = &[
+                28, 83, 101, 114, 118, 105, 99, 101, 60, 81, 117, 101, 114, 121, 66, 101, 116, 115,
+                66, 121, 85, 115, 101, 114,
+            ];
+            type Params = ActorId;
+            type Reply = Vec<super::UserBetView>;
+        }
         pub struct QueryMatch(());
 
         impl QueryMatch {
@@ -420,6 +433,15 @@ pub enum Outcome {
 #[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]
 #[scale_info(crate = sails_rs::scale_info)]
+pub struct UserBetView {
+    pub match_id: u64,
+    pub selected: Outcome,
+    pub amount: u128,
+    pub paid: bool,
+}
+#[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
 pub struct MatchInfo {
     pub match_id: u64,
     pub phase: String,
@@ -441,7 +463,6 @@ pub enum ResultStatus {
     Proposed { outcome: Outcome, oracle: ActorId },
     Finalized { outcome: Outcome },
 }
-/// Query replies
 #[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]
 #[scale_info(crate = sails_rs::scale_info)]
@@ -514,6 +535,10 @@ pub mod traits {
         ) -> impl Call<Output = BolaoEvent, Args = Self::Args>;
         fn send_final_prize(&mut self) -> impl Call<Output = BolaoEvent, Args = Self::Args>;
         fn withdraw_fees(&mut self) -> impl Call<Output = BolaoEvent, Args = Self::Args>;
+        fn query_bets_by_user(
+            &self,
+            user: ActorId,
+        ) -> impl Query<Output = Vec<UserBetView>, Args = Self::Args>;
         fn query_match(
             &self,
             match_id: u64,

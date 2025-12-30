@@ -4,6 +4,13 @@ type Outcome = enum {
   Away,
 };
 
+type UserBetView = struct {
+  match_id: u64,
+  selected: Outcome,
+  amount: u128,
+  paid: bool,
+};
+
 type MatchInfo = struct {
   match_id: u64,
   phase: str,
@@ -29,7 +36,6 @@ type ResultStatus = enum {
   },
 };
 
-/// Query replies
 type IoBolaoState = struct {
   owner: actor_id,
   kyc_contract: actor_id,
@@ -52,27 +58,18 @@ constructor {
 };
 
 service Service {
-  /// Accept a bet (may only before kick_off). Must validate age via KYC contract externally. Fee/final_prize logic applies.
   Bet : (match_id: u64, selected: Outcome) -> BolaoEvent;
-  /// Finalize proposed result (must be from owner or designated oracle admin).
   FinalizeResult : (match_id: u64) -> BolaoEvent;
-  /// Begin winner payout for match: pays in safe chunks; one call pays up to MAX_PAYOUT_CHUNK total. Repeatable.
   PayoutWinners : (match_id: u64) -> vec BolaoEvent;
-  /// Propose result (anyone with oracle rights can call).
   ProposeResult : (match_id: u64, outcome: Outcome) -> BolaoEvent;
   RegisterMatch : (phase: str, home: str, away: str, kick_off: u64) -> BolaoEvent;
   RegisterPhase : (phase_name: str, start_time: u64, end_time: u64) -> BolaoEvent;
-  /// Send accumulated 'final prize' to FinalPrizeDistributorActor, then resets final_prize_accum.
   SendFinalPrize : () -> BolaoEvent;
-  /// Owner withdraws accumulated fees.
   WithdrawFees : () -> BolaoEvent;
-  /// Query a match by id
+  query QueryBetsByUser : (user: actor_id) -> vec UserBetView;
   query QueryMatch : (match_id: u64) -> opt MatchInfo;
-  /// Query all matches for a phase
   query QueryMatchesByPhase : (phase: str) -> vec MatchInfo;
-  /// Query contract global state
   query QueryState : () -> IoBolaoState;
-  /// Query points for a specific user
   query QueryUserPoints : (user: actor_id) -> u32;
 
   events {
