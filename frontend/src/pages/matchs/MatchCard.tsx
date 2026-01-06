@@ -7,7 +7,7 @@ import { TransactionBuilder } from 'sails-js';
 import { useToast } from '@/hooks/useToast';
 import './styles.css';
 
-const PROGRAM_ID = '0x799e6a51d7fa45386ff7c771266995df0403f4ade22e697a25ae20a99060c21b';
+const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM;
 
 type Outcome = 'Home' | 'Draw' | 'Away';
 
@@ -127,7 +127,7 @@ const OddsTable: React.FC<{
     <div className="odds-table">
       <div className="odds-table__header">
         <div>Result</div>
-        <div style={{ textAlign: 'center' }}>Odd</div>
+        <div style={{ textAlign: 'center' }}>Estimated Odds</div>
         <div style={{ textAlign: 'right' }}>Pick</div>
       </div>
 
@@ -345,7 +345,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2 }) => {
         {/* Footer */}
         <div className="match-card__footer" style={{ gap: 10 }}>
           <div style={{ marginRight: 'auto', fontSize: 12, opacity: 0.9 }}>
-            Prize Pool: <b>{totalPool(match)}</b>
+            Prize Pool: <b>{totalPool(match) / 1000000000000} VARA</b>
             {' · '}Has predictions: <b>{match.has_bets ? 'Yes' : 'No'}</b>
           </div>
 

@@ -1,10 +1,9 @@
-
 #![no_std]
 #![allow(static_mut_refs)]
 
 use sails_rs::{
     prelude::*,
-    gstd::{msg, exec},
+    gstd::{exec, msg},
     collections::HashMap,
 };
 use sails_rs::collections::HashMap as SailsHashMap;
@@ -12,7 +11,7 @@ use sails_rs::collections::HashMap as SailsHashMap;
 const FEE_BASIS_POINTS: u128 = 500;
 const FINAL_PRIZE_BASIS_POINTS: u128 = 2000;
 const BASIS_POINTS_DIV: u128 = 10_000;
-const MAX_PAYOUT_CHUNK: u128 = 10_000 * 1_000_000_000_000; 
+const MAX_PAYOUT_CHUNK: u128 = 10_000 * 1_000_000_000_000;
 
 pub static mut BOLAO_STATE: Option<BolaoState> = None;
 
@@ -67,10 +66,28 @@ pub struct Bet {
     pub user: ActorId,
     pub match_id: u64,
     pub selected: Outcome,
-    pub amount: u128,
+    pub amount: u128, 
     pub paid: bool,
 }
 
+#[derive(Debug, Clone, Encode, Decode, TypeInfo, PartialEq, Eq)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct UserBetRecord {
+    pub match_id: u64,
+    pub selected: Outcome,
+    pub amount: u128, 
+}
+
+#[derive(Debug, Clone, Encode, Decode, TypeInfo, PartialEq, Eq)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct UserBetView {
+    pub match_id: u64,
+    pub selected: Outcome,
+    pub amount: u128,
+    pub paid: bool,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct BolaoState {
@@ -83,12 +100,12 @@ pub struct BolaoState {
     pub phases: SailsHashMap<String, MatchPhase>,
     pub user_points: SailsHashMap<ActorId, u32>,
     pub bets: SailsHashMap<(ActorId, u64), Bet>,
+    pub user_bets: SailsHashMap<ActorId, Vec<UserBetRecord>>,
     pub current_match: u64,
     pub payouts_queue: Vec<(u64, ActorId)>,
 }
 
 impl BolaoState {
-    
     pub fn init(owner: ActorId, kyc_contract: ActorId, final_prize_distributor: ActorId) {
         unsafe {
             BOLAO_STATE = Some(Self {
@@ -100,20 +117,18 @@ impl BolaoState {
         }
     }
 
-    
     pub fn state_mut() -> &'static mut BolaoState {
         let s = unsafe { BOLAO_STATE.as_mut() };
         debug_assert!(s.is_some(), "State not initialized");
         unsafe { s.unwrap_unchecked() }
     }
- 
+
     pub fn state_ref() -> &'static BolaoState {
         let s = unsafe { BOLAO_STATE.as_ref() };
         debug_assert!(s.is_some(), "State not initialized");
         unsafe { s.unwrap_unchecked() }
     }
 }
-
 
 #[event]
 #[derive(Debug, Encode, Decode, TypeInfo)]
@@ -129,7 +144,6 @@ pub enum BolaoEvent {
     FinalPrizeSent(u128, ActorId),
     FeeWithdrawn(u128, ActorId),
 }
-
 
 #[derive(Debug, Encode, Decode, TypeInfo, Clone)]
 #[codec(crate = sails_rs::scale_codec)]
@@ -155,7 +169,11 @@ impl From<BolaoState> for IoBolaoState {
             final_prize_accum: state.final_prize_accum,
             matches: state.matches.values().cloned().collect(),
             phases: state.phases.values().cloned().collect(),
-            user_points: state.user_points.iter().map(|(id, pts)| (*id, *pts)).collect(),
+            user_points: state
+                .user_points
+                .iter()
+                .map(|(id, pts)| (*id, *pts))
+                .collect(),
         }
     }
 }
@@ -164,9 +182,10 @@ impl From<BolaoState> for IoBolaoState {
 pub struct Service;
 
 impl Service {
+    pub fn new() -> Self {
+        Self
+    }
 
-    pub fn new() -> Self { Self } 
-   
     pub fn seed(kyc_contract: ActorId, final_prize_distributor: ActorId) {
         BolaoState::init(msg::source(), kyc_contract, final_prize_distributor)
     }
@@ -174,29 +193,52 @@ impl Service {
 
 #[sails_rs::service(events = BolaoEvent)]
 impl Service {
-    
     #[export]
-    pub fn register_phase(&mut self, phase_name: String, start_time: u64, end_time: u64) -> BolaoEvent {
+    pub fn register_phase(
+        &mut self,
+        phase_name: String,
+        start_time: u64,
+        end_time: u64,
+    ) -> BolaoEvent {
         let state = BolaoState::state_mut();
-        if msg::source() != state.owner { panic!("Only owner"); }
-        if state.phases.contains_key(&phase_name) { panic!("Duplicate phase"); }
+        if msg::source() != state.owner {
+            panic!("Only owner");
+        }
+        if state.phases.contains_key(&phase_name) {
+            panic!("Duplicate phase");
+        }
+
         let phase = MatchPhase {
             name: phase_name.clone(),
             start_time,
             end_time,
         };
         state.phases.insert(phase_name.clone(), phase);
-        self.emit_event(BolaoEvent::PhaseRegistered(phase_name.clone())).expect("Notify error");
+
+        self.emit_event(BolaoEvent::PhaseRegistered(phase_name.clone()))
+            .expect("Notify error");
         BolaoEvent::PhaseRegistered(phase_name)
     }
 
     #[export]
-    pub fn register_match(&mut self, phase: String, home: String, away: String, kick_off: u64) -> BolaoEvent {
+    pub fn register_match(
+        &mut self,
+        phase: String,
+        home: String,
+        away: String,
+        kick_off: u64,
+    ) -> BolaoEvent {
         let state = BolaoState::state_mut();
-        if msg::source() != state.owner { panic!("Only owner"); }
-        if !state.phases.contains_key(&phase) { panic!("Phase not found"); }
+        if msg::source() != state.owner {
+            panic!("Only owner");
+        }
+        if !state.phases.contains_key(&phase) {
+            panic!("Phase not found");
+        }
+
         let id = state.current_match.saturating_add(1);
         state.current_match = id;
+
         let info = MatchInfo {
             match_id: id,
             phase: phase.clone(),
@@ -210,14 +252,20 @@ impl Service {
             has_bets: false,
             participants: Vec::new(),
         };
-        state.matches.insert(id, info);
-        self.emit_event(BolaoEvent::MatchRegistered(id, phase.clone(), home.clone(), away.clone(), kick_off)).expect("Notify");
 
-        
+        state.matches.insert(id, info);
+        self.emit_event(BolaoEvent::MatchRegistered(
+            id,
+            phase.clone(),
+            home.clone(),
+            away.clone(),
+            kick_off,
+        ))
+        .expect("Notify");
+
         BolaoEvent::MatchRegistered(id, phase, home, away, kick_off)
     }
 
-    
     #[export]
     pub fn bet(&mut self, match_id: u64, selected: Outcome) -> BolaoEvent {
         let state = BolaoState::state_mut();
@@ -225,12 +273,13 @@ impl Service {
         let amount = msg::value();
         let now = exec::block_timestamp();
 
-   
         let info = state.matches.get_mut(&match_id).expect("Match not found");
-        if now >= info.kick_off { panic!("Match started"); }
-        if state.bets.contains_key(&(user, match_id)) { panic!("Already bet"); }
-
-
+        if now >= info.kick_off {
+            panic!("Match started");
+        }
+        if state.bets.contains_key(&(user, match_id)) {
+            panic!("Already bet");
+        }
 
         let fee = amount.saturating_mul(FEE_BASIS_POINTS) / BASIS_POINTS_DIV;
         let final_prize = amount.saturating_mul(FINAL_PRIZE_BASIS_POINTS) / BASIS_POINTS_DIV;
@@ -240,9 +289,9 @@ impl Service {
         state.final_prize_accum = state.final_prize_accum.saturating_add(final_prize);
 
         match selected {
-            Outcome::Home => { info.pool_home = info.pool_home.saturating_add(bet_amount); }
-            Outcome::Draw => { info.pool_draw = info.pool_draw.saturating_add(bet_amount); }
-            Outcome::Away => { info.pool_away = info.pool_away.saturating_add(bet_amount); }
+            Outcome::Home => info.pool_home = info.pool_home.saturating_add(bet_amount),
+            Outcome::Draw => info.pool_draw = info.pool_draw.saturating_add(bet_amount),
+            Outcome::Away => info.pool_away = info.pool_away.saturating_add(bet_amount),
         }
 
         info.has_bets = true;
@@ -257,16 +306,28 @@ impl Service {
             amount: bet_amount,
             paid: false,
         };
+
         state.bets.insert((user, match_id), bet);
-        self.emit_event(BolaoEvent::BetAccepted(user, match_id, selected, bet_amount)).expect("event");
+
+        let list = state.user_bets.entry(user).or_insert(Vec::new());
+        if !list.iter().any(|r| r.match_id == match_id) {
+            list.push(UserBetRecord {
+                match_id,
+                selected,
+                amount: bet_amount,   
+            });
+        }
+
+        self.emit_event(BolaoEvent::BetAccepted(user, match_id, selected, bet_amount))
+            .expect("event");
         BolaoEvent::BetAccepted(user, match_id, selected, bet_amount)
     }
 
-    
     #[export]
     pub fn propose_result(&mut self, match_id: u64, outcome: Outcome) -> BolaoEvent {
         let state = BolaoState::state_mut();
         let user = msg::source();
+
         let info = state.matches.get_mut(&match_id).expect("No such match");
         match &info.result {
             ResultStatus::Unresolved => {
@@ -274,25 +335,29 @@ impl Service {
             }
             _ => panic!("Result already proposed/finalized"),
         }
-        self.emit_event(BolaoEvent::ResultProposed(match_id, outcome, user)).expect("Notify");
+
+        self.emit_event(BolaoEvent::ResultProposed(match_id, outcome, user))
+            .expect("Notify");
         BolaoEvent::ResultProposed(match_id, outcome, user)
     }
 
-   
     #[export]
     pub fn finalize_result(&mut self, match_id: u64) -> BolaoEvent {
         let state = BolaoState::state_mut();
         let user = msg::source();
+
         let info = state.matches.get_mut(&match_id).expect("No such match");
         let outcome = match &info.result {
             ResultStatus::Proposed { outcome, oracle: _ } => *outcome,
             _ => panic!("Not proposed or already finalized"),
         };
+
         if user != state.owner {
             panic!("Only owner may finalize");
         }
+
         info.result = ResultStatus::Finalized { outcome };
-       
+
         for participant in info.participants.iter() {
             if let Some(bet) = state.bets.get(&(*participant, match_id)) {
                 if bet.selected == outcome {
@@ -301,98 +366,152 @@ impl Service {
                 }
             }
         }
-        self.emit_event(BolaoEvent::ResultFinalized(match_id, outcome)).expect("Notify");
+
+        self.emit_event(BolaoEvent::ResultFinalized(match_id, outcome))
+            .expect("Notify");
         BolaoEvent::ResultFinalized(match_id, outcome)
     }
 
-   
     #[export]
     pub fn payout_winners(&mut self, match_id: u64) -> Vec<BolaoEvent> {
         let state = BolaoState::state_mut();
         let info = state.matches.get(&match_id).expect("Not found");
+
         let outcome = match info.result {
             ResultStatus::Finalized { outcome } => outcome,
             _ => panic!("Not finalized"),
         };
-      
-        let total_pool = info.pool_home.saturating_add(info.pool_draw).saturating_add(info.pool_away);
+
+        let total_pool = info
+            .pool_home
+            .saturating_add(info.pool_draw)
+            .saturating_add(info.pool_away);
+
         let (winning_pool, variant) = match outcome {
             Outcome::Home => (info.pool_home, Outcome::Home),
             Outcome::Draw => (info.pool_draw, Outcome::Draw),
             Outcome::Away => (info.pool_away, Outcome::Away),
         };
-      
-        if winning_pool == 0 { return Vec::new(); }
 
-       
-        let mut paid = 0u128;
-        let mut n = 0;
+        if winning_pool == 0 {
+            return Vec::new();
+        }
+
+        let mut paid_sum = 0u128;
         let mut events = Vec::new();
+
         for bet in state.bets.values_mut() {
             if bet.match_id == match_id && bet.selected == variant && !bet.paid {
                 let share = bet.amount.saturating_mul(total_pool) / winning_pool;
-                
-                if paid.saturating_add(share) > MAX_PAYOUT_CHUNK { break; }
-                
+
+                if paid_sum.saturating_add(share) > MAX_PAYOUT_CHUNK {
+                    break;
+                }
+
                 bet.paid = true;
-                
+
                 msg::send(bet.user, (), share).expect("Payout failed");
                 events.push(BolaoEvent::WinnerPaid(match_id, bet.user, share));
-                paid = paid.saturating_add(share);
-                n += 1;
+                paid_sum = paid_sum.saturating_add(share);
             }
         }
+
         events
     }
 
-    
     #[export]
     pub fn send_final_prize(&mut self) -> BolaoEvent {
         let state = BolaoState::state_mut();
         let to = state.final_prize_distributor;
         let amt = state.final_prize_accum;
-        if amt == 0 { panic!("No prize"); }
+
+        if amt == 0 {
+            panic!("No prize");
+        }
+
         state.final_prize_accum = 0;
         msg::send(to, (), amt).expect("Prize payout failed");
-        self.emit_event(BolaoEvent::FinalPrizeSent(amt, to)).expect("event");
+
+        self.emit_event(BolaoEvent::FinalPrizeSent(amt, to))
+            .expect("event");
         BolaoEvent::FinalPrizeSent(amt, to)
     }
 
-    
     #[export]
     pub fn withdraw_fees(&mut self) -> BolaoEvent {
         let state = BolaoState::state_mut();
         let to = state.owner;
         let amt = state.fee_accum;
-        if amt == 0 { panic!("No fee"); }
+
+        if amt == 0 {
+            panic!("No fee");
+        }
+
         state.fee_accum = 0;
         msg::send(to, (), amt).expect("Fee payout failed");
-        self.emit_event(BolaoEvent::FeeWithdrawn(amt, to)).expect("event");
+
+        self.emit_event(BolaoEvent::FeeWithdrawn(amt, to))
+            .expect("event");
         BolaoEvent::FeeWithdrawn(amt, to)
     }
 
-    
+
     #[export]
     pub fn query_match(&self, match_id: u64) -> Option<MatchInfo> {
         BolaoState::state_ref().matches.get(&match_id).cloned()
     }
 
-   
     #[export]
     pub fn query_user_points(&self, user: ActorId) -> u32 {
-        BolaoState::state_ref().user_points.get(&user).cloned().unwrap_or(0)
+        BolaoState::state_ref()
+            .user_points
+            .get(&user)
+            .cloned()
+            .unwrap_or(0)
     }
 
-  
     #[export]
     pub fn query_matches_by_phase(&self, phase: String) -> Vec<MatchInfo> {
         let state = BolaoState::state_ref();
-        state.matches.values().filter(|m| m.phase == phase).cloned().collect()
+        state
+            .matches
+            .values()
+            .filter(|m| m.phase == phase)
+            .cloned()
+            .collect()
     }
 
-   
     #[export]
     pub fn query_state(&self) -> IoBolaoState {
         BolaoState::state_ref().clone().into()
     }
+
+    #[export]
+    pub fn query_bets_by_user(&self, user: ActorId) -> Vec<UserBetView> {
+        let state = BolaoState::state_ref();
+
+        let records = match state.user_bets.get(&user) {
+            Some(v) => v,
+            None => return Vec::new(),
+        };
+
+        let mut out = Vec::with_capacity(records.len());
+        for r in records.iter() {
+            let paid = state
+                .bets
+                .get(&(user, r.match_id))
+                .map(|b| b.paid)
+                .unwrap_or(false);
+
+            out.push(UserBetView {
+                match_id: r.match_id,
+                selected: r.selected,
+                amount: r.amount,
+                paid,
+            });
+        }
+        out
+    }
+
+   
 }

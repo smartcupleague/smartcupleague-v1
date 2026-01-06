@@ -1,5 +1,3 @@
-// src/data/matches.ts
-
 export type MatchStatus = "LIVE" | "SCHEDULED" | "SETTLED";
 export type MatchResultSide = "HOME" | "DRAW" | "AWAY";
 

@@ -6,6 +6,7 @@ import './scb-dashboard.css';
 import { Wallet } from '@gear-js/wallet-connect';
 import { MatchList } from './MatchList';
 import { MatchesTableComponent } from './AllMatchs';
+import { QueryBetsByUserComponent } from './QueryBetsByUser';
 
 export type SectionKey = 'home' | 'my-bets' | 'all-bets' | 'all-cups' | 'dao' | 'settings';
 
@@ -49,7 +50,7 @@ const Dashboard: React.FC = () => {
       case 'home':
         return <DashboardHome />;
       case 'my-bets':
-        return <div className="scb-panel-placeholder">My Predictions – coming soon.</div>;
+        return <QueryBetsByUserComponent/>;
       case 'all-bets':
         return <MatchesTableComponent/>;
       case 'all-cups':

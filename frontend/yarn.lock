@@ -3544,47 +3544,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"edu-grants@workspace:.":
-  version: 0.0.0-use.local
-  resolution: "edu-grants@workspace:."
-  dependencies:
-    "@gear-js/api": "npm:0.41.0"
-    "@gear-js/react-hooks": "npm:0.15.0"
-    "@gear-js/ui": "npm:^0.7.0"
-    "@gear-js/vara-ui": "npm:0.1.1"
-    "@gear-js/wallet-connect": "npm:^0.4.1"
-    "@polkadot/api": "npm:15.4.1"
-    "@polkadot/extension-dapp": "npm:^0.58.8"
-    "@polkadot/react-identicon": "npm:3.12.1"
-    "@polkadot/types": "npm:15.4.1"
-    "@tanstack/react-query": "npm:5.66.0"
-    "@types/react": "npm:18.3.18"
-    "@types/react-dom": "npm:18.3.5"
-    "@typescript-eslint/eslint-plugin": "npm:8.23.0"
-    "@typescript-eslint/parser": "npm:8.23.0"
-    "@vitejs/plugin-react": "npm:4.3.4"
-    clsx: "npm:2.1.1"
-    eslint: "npm:8.57.1"
-    eslint-config-prettier: "npm:10.0.1"
-    eslint-import-resolver-typescript: "npm:3.7.0"
-    eslint-plugin-import: "npm:2.31.0"
-    eslint-plugin-jsx-a11y: "npm:6.10.2"
-    eslint-plugin-react: "npm:7.37.4"
-    eslint-plugin-react-hooks: "npm:5.1.0"
-    eslint-plugin-react-refresh: "npm:0.4.18"
-    react: "npm:18.3.1"
-    react-dom: "npm:18.3.1"
-    react-router-dom: "npm:6.28.0"
-    sails-js: "npm:0.3.1"
-    sass: "npm:1.83.4"
-    typescript: "npm:5.7.3"
-    vite: "npm:6.1.0"
-    vite-plugin-checker: "npm:0.8.0"
-    vite-plugin-node-polyfills: "npm:0.23.0"
-    vite-plugin-svgr: "npm:4.3.0"
-  languageName: unknown
-  linkType: soft
-
 "electron-to-chromium@npm:^1.5.249":
   version: 1.5.257
   resolution: "electron-to-chromium@npm:1.5.257"
@@ -6811,6 +6770,47 @@ __metadata:
   checksum: 10c0/a16775323e1404dd43fabafe7460be13a471e021637bc7889468eb45ce6a6b207261f454e4e530a19500cc962c4cc5348583520843b363f4193cee5c00e1e539
   languageName: node
   linkType: hard
+
+"smartcup@workspace:.":
+  version: 0.0.0-use.local
+  resolution: "smartcup@workspace:."
+  dependencies:
+    "@gear-js/api": "npm:0.41.0"
+    "@gear-js/react-hooks": "npm:0.15.0"
+    "@gear-js/ui": "npm:^0.7.0"
+    "@gear-js/vara-ui": "npm:0.1.1"
+    "@gear-js/wallet-connect": "npm:^0.4.1"
+    "@polkadot/api": "npm:15.4.1"
+    "@polkadot/extension-dapp": "npm:^0.58.8"
+    "@polkadot/react-identicon": "npm:3.12.1"
+    "@polkadot/types": "npm:15.4.1"
+    "@tanstack/react-query": "npm:5.66.0"
+    "@types/react": "npm:18.3.18"
+    "@types/react-dom": "npm:18.3.5"
+    "@typescript-eslint/eslint-plugin": "npm:8.23.0"
+    "@typescript-eslint/parser": "npm:8.23.0"
+    "@vitejs/plugin-react": "npm:4.3.4"
+    clsx: "npm:2.1.1"
+    eslint: "npm:8.57.1"
+    eslint-config-prettier: "npm:10.0.1"
+    eslint-import-resolver-typescript: "npm:3.7.0"
+    eslint-plugin-import: "npm:2.31.0"
+    eslint-plugin-jsx-a11y: "npm:6.10.2"
+    eslint-plugin-react: "npm:7.37.4"
+    eslint-plugin-react-hooks: "npm:5.1.0"
+    eslint-plugin-react-refresh: "npm:0.4.18"
+    react: "npm:18.3.1"
+    react-dom: "npm:18.3.1"
+    react-router-dom: "npm:6.28.0"
+    sails-js: "npm:0.3.1"
+    sass: "npm:1.83.4"
+    typescript: "npm:5.7.3"
+    vite: "npm:6.1.0"
+    vite-plugin-checker: "npm:0.8.0"
+    vite-plugin-node-polyfills: "npm:0.23.0"
+    vite-plugin-svgr: "npm:4.3.0"
+  languageName: unknown
+  linkType: soft
 
 "smoldot@npm:2.0.26":
   version: 2.0.26
