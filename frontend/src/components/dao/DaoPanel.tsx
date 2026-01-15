@@ -1,6 +1,6 @@
-import React from "react";
-import { daoProposals, FINAL_PRIZE_POOL_BTC, USER_VOTING_POWER } from "./dao";
-import "./scb-dashboard.css"; 
+import React from 'react';
+import { daoProposals, FINAL_PRIZE_POOL_BTC, USER_VOTING_POWER } from './dao';
+import './scb-dashboard.css';
 
 export const DaoPanel: React.FC = () => {
   return (
@@ -16,15 +16,12 @@ export const DaoPanel: React.FC = () => {
       </div>
 
       <div className="scb-dao-grid">
-        {/* Voting power card */}
         <article className="scb-dao-card">
           <h3>Your voting power</h3>
           <p className="scb-dao-power">
             {USER_VOTING_POWER.toLocaleString()} <span className="scb-dao-unit">BOL</span>
           </p>
-          <p className="scb-dao-sub">
-            Based on your stake, past participation and delegated voting rights.
-          </p>
+          <p className="scb-dao-sub">Based on your stake, past participation and delegated voting rights.</p>
           <div className="scb-dao-tags">
             <span className="scb-chip">Active voter</span>
             <span className="scb-chip">Proposal eligible</span>
@@ -34,12 +31,8 @@ export const DaoPanel: React.FC = () => {
         {/* Final prize pool card */}
         <article className="scb-dao-card">
           <h3>Final prize pool</h3>
-          <p className="scb-dao-amount">
-            ₿ {FINAL_PRIZE_POOL_BTC.toFixed(2)}
-          </p>
-          <p className="scb-dao-sub">
-            20% of protocol fees are streamed into this pool across all cups.
-          </p>
+          <p className="scb-dao-amount">₿ {FINAL_PRIZE_POOL_BTC.toFixed(2)}</p>
+          <p className="scb-dao-sub">20% of protocol fees are streamed into this pool across all cups.</p>
 
           <div className="scb-dao-breakdown">
             <div>
@@ -75,9 +68,7 @@ export const DaoPanel: React.FC = () => {
             ))}
           </div>
 
-          <button className="scb-btn scb-btn--primary scb-btn--full scb-btn--sm">
-            Create new proposal
-          </button>
+          <button className="scb-btn scb-btn--primary scb-btn--full scb-btn--sm">Create new proposal</button>
         </article>
       </div>
     </aside>

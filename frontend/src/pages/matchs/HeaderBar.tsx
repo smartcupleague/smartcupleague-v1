@@ -13,7 +13,7 @@ export const HeaderBar: React.FC = () => {
         <span className="logo-highlight">CupLeague</span>
       </div>
 
-      <button className="back-button" onClick={() => navigate('/dashboard') }>BACK</button>
+      <button className="back-button" onClick={() => navigate('/home') }>BACK</button>
     </header>
   );
 };

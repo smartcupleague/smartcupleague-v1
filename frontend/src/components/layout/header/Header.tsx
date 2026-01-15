@@ -1,4 +1,4 @@
-import { Wallet } from '@gear-js/wallet-connect';
+import { Wallet, WalletModal } from '@gear-js/wallet-connect';
 import styles from './Header.module.scss';
 
 function Header() {
