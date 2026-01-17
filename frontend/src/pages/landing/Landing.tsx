@@ -71,7 +71,7 @@ export const Landing: React.FC = () => {
         </div>
 
         <div className="scb-nav__right">
-          <button className="scb-btn scb-btn--primary" onClick={() => navigate('/dashboard')}>
+          <button className="scb-btn scb-btn--primary" onClick={() => navigate('/home')}>
             Enter app
           </button>
         </div>
@@ -100,7 +100,7 @@ export const Landing: React.FC = () => {
                   </h1>
 
                   <div className="scb-hero__cta-row">
-                    <button className="scb-btn scb-btn--primary scb-hero__cta" onClick={() => navigate('/dashboard')}>
+                    <button className="scb-btn scb-btn--primary scb-hero__cta" onClick={() => navigate('/home')}>
                       Start predicting
                     </button>
                     <a className="scb-btn scb-btn--ghost" href="#market">

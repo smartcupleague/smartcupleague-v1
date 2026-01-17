@@ -1,0 +1,556 @@
+.lb {
+  position: relative;
+  width: 100%;
+  min-height: 100%;
+  padding: 18px;
+}
+
+@media (min-width: 1100px) {
+  .lb {
+    padding: 22px 24px;
+  }
+}
+
+.lb__bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(900px 500px at 50% 0%, rgba(255, 0, 110, 0.14), transparent 60%),
+    radial-gradient(700px 450px at 90% 30%, rgba(255, 79, 156, 0.12), transparent 65%),
+    radial-gradient(900px 650px at 10% 80%, rgba(142, 30, 100, 0.14), transparent 60%),
+    radial-gradient(1200px 800px at 50% 110%, rgba(0, 0, 0, 0.45), transparent 60%),
+    repeating-linear-gradient(115deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 7px);
+  mix-blend-mode: screen;
+  opacity: 0.55;
+  filter: blur(0.2px);
+}
+
+/* Top row */
+.lbTop {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+
+  width: 100%;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+
+  border-radius: calc(var(--r) + 6px);
+  border: 1px solid var(--stroke2);
+  background: radial-gradient(900px 260px at 20% 0%, rgba(255, 0, 110, 0.14), transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow);
+}
+
+.lbTop__left {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.lbTop__right {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 260px;
+}
+.lbWallet {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* Tournament chips (like top tabs) */
+.lbChip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  background: rgba(0, 0, 0, 0.16);
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.lbChip:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+}
+.lbChip__dot {
+  filter: drop-shadow(0 0 12px rgba(255, 0, 110, 0.38));
+}
+.lbChip__sub {
+  position: absolute;
+  left: 44px;
+  bottom: -14px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.62);
+}
+.lbChip--ghost {
+  width: 44px;
+  justify-content: center;
+  font-size: 18px;
+  padding: 0;
+}
+.lbChip--active {
+  border-color: rgba(255, 0, 110, 0.45);
+  background: radial-gradient(520px 140px at 20% 20%, rgba(255, 0, 110, 0.26), transparent 62%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.06));
+  box-shadow: 0 0 0 1px rgba(255, 0, 110, 0.22) inset, 0 18px 60px rgba(255, 0, 110, 0.14);
+}
+
+/* Subnav row */
+.lbSubnav {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0 0 12px;
+}
+
+.lbTabs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+
+  padding: 8px;
+  border-radius: 16px;
+  border: 1px solid var(--stroke2);
+  background: rgba(0, 0, 0, 0.1);
+  backdrop-filter: var(--blur);
+}
+
+.lbTab {
+  border: 1px solid transparent;
+  background: rgba(0, 0, 0, 0.12);
+  color: rgba(255, 255, 255, 0.86);
+  padding: 10px 12px;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  font-weight: 650;
+  font-size: 13px;
+}
+.lbTab:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+}
+.lbTab--active {
+  border-color: rgba(255, 0, 110, 0.45);
+  background: radial-gradient(320px 120px at 30% 20%, rgba(255, 0, 110, 0.22), transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.06));
+  box-shadow: 0 0 0 1px rgba(255, 0, 110, 0.2) inset;
+}
+
+/* Search */
+.lbSearch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+
+  min-width: 340px;
+  border-radius: 16px;
+  border: 1px solid var(--stroke2);
+  background: rgba(0, 0, 0, 0.12);
+  backdrop-filter: var(--blur);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+}
+.lbSearch__icon {
+  opacity: 0.8;
+}
+.lbSearch__input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 13px;
+}
+.lbSearch__input::placeholder {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* Header row */
+.lbHeaderRow {
+  position: relative;
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  margin: 0 0 12px;
+}
+.lbTitle {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+.lbTitle__main {
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 0.2px;
+}
+.lbTitle__sub {
+  font-size: 12px;
+}
+
+.lbPager {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.lbPage {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.1);
+  color: rgba(255, 255, 255, 0.86);
+  padding: 8px 10px;
+  border-radius: 12px;
+  cursor: pointer;
+}
+.lbPage--active {
+  border-color: rgba(255, 0, 110, 0.45);
+  box-shadow: 0 0 0 1px rgba(255, 0, 110, 0.18) inset;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.lbGrid {
+  position: relative;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr 360px;
+  gap: 14px;
+  padding-bottom: 76px;
+  min-width: 0;
+}
+
+.lbCard {
+  border-radius: var(--r);
+  border: 1px solid var(--stroke2);
+  background: radial-gradient(700px 280px at 20% 0%, rgba(255, 0, 110, 0.14), transparent 58%),
+    radial-gradient(620px 260px at 92% 30%, rgba(142, 30, 100, 0.12), transparent 62%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  min-width: 0;
+}
+
+.lbCard__head {
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.lbCard__title {
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.86);
+}
+.lbCard__foot {
+  padding: 12px 14px 14px;
+}
+
+.lbRight {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+/* Table */
+.lbTable {
+  padding: 10px;
+}
+.lbTHead {
+  display: grid;
+  grid-template-columns: 120px 1.2fr 1fr 1fr 1fr 1fr;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.1);
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 12px;
+}
+.lbTH--num {
+  text-align: right;
+}
+
+.lbTBody {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.lbTRow {
+  display: grid;
+  grid-template-columns: 120px 1.2fr 1fr 1fr 1fr 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.1);
+}
+.lbTRow:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+}
+.lbTRow--me {
+  border-color: rgba(255, 0, 110, 0.4);
+  background: radial-gradient(520px 160px at 18% 50%, rgba(255, 0, 110, 0.16), transparent 60%), rgba(0, 0, 0, 0.1);
+  box-shadow: 0 0 0 1px rgba(255, 0, 110, 0.18) inset;
+}
+
+.lbRank {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.lbMedal {
+  width: 26px;
+  height: 26px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.lbRank__no {
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.lbWalletCell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.lbAvatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 8px;
+  background: radial-gradient(circle at 30% 20%, rgba(255, 79, 156, 0.4), transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  flex: 0 0 auto;
+}
+.lbDelta {
+  margin-left: 8px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 0, 110, 0.3);
+  background: rgba(255, 0, 110, 0.1);
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 12px;
+}
+
+.lbNum {
+  text-align: right;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+.lbTrophy {
+  opacity: 0.8;
+}
+.lbNum__main {
+  font-weight: 900;
+  letter-spacing: 0.2px;
+}
+
+.lbTable__foot {
+  padding: 10px 12px 4px;
+  text-align: center;
+}
+
+/* Right cards content */
+.lbPickList {
+  padding: 10px 14px 14px;
+  display: grid;
+  gap: 10px;
+}
+.lbPick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.1);
+}
+.lbPick__icon {
+  opacity: 0.9;
+}
+.lbPick__teams {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.lbPick__team {
+  font-weight: 800;
+}
+.lbPick__vs {
+  margin-top: 2px;
+}
+
+.lbEarnings {
+  padding: 10px 14px 14px;
+  display: grid;
+  gap: 10px;
+}
+.lbEarnRow {
+  display: grid;
+  grid-template-columns: 44px 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.1);
+}
+.lbEarnRank {
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.82);
+}
+.lbEarnWallet {
+  color: rgba(255, 255, 255, 0.86);
+}
+.lbEarnNum {
+  color: rgba(255, 255, 255, 0.86);
+}
+.lbEarnRoi {
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 0 16px rgba(255, 0, 110, 0.14);
+}
+
+/* Buttons (leaderboard-specific) */
+.lbBtn {
+  border: 1px solid transparent;
+  background: rgba(0, 0, 0, 0.14);
+  color: rgba(255, 255, 255, 0.9);
+  padding: 10px 12px;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  font-weight: 650;
+  font-size: 13px;
+}
+.lbBtn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+}
+.lbBtn--ghost {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.78);
+}
+.lbBtn--soft {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.lbBtn--primary {
+  background: radial-gradient(260px 140px at 30% 20%, rgba(255, 0, 110, 0.6), transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04));
+  border-color: rgba(255, 0, 110, 0.38);
+  box-shadow: 0 0 0 1px rgba(255, 0, 110, 0.22) inset, 0 14px 40px rgba(255, 0, 110, 0.14);
+}
+
+/* Bottom sticky bar */
+.lbBottom {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  width: 100%;
+
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: calc(var(--r) + 6px);
+  border: 1px solid var(--stroke2);
+  background: radial-gradient(900px 240px at 25% 0%, rgba(255, 0, 110, 0.12), transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow);
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.lbBottom__left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lbBottom__value {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.lbBottom__rank {
+  font-weight: 950;
+  font-size: 18px;
+}
+.lbBottom__pts {
+  font-weight: 950;
+  font-size: 18px;
+}
+
+.lbBottom__mid {
+  opacity: 0.85;
+}
+.lbBottom__right {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 1100px) {
+  .lbGrid {
+    grid-template-columns: 1fr;
+  }
+  .lbSearch {
+    min-width: 0;
+    width: 100%;
+  }
+  .lbSubnav {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 780px) {
+  .lbTHead,
+  .lbTRow {
+    grid-template-columns: 110px 1fr 110px;
+  }
+  .lbTHead > :nth-child(4),
+  .lbTHead > :nth-child(5),
+  .lbTHead > :nth-child(6),
+  .lbTRow > :nth-child(4),
+  .lbTRow > :nth-child(5),
+  .lbTRow > :nth-child(6) {
+    display: none;
+  }
+  .lbBottom {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .lbBottom__right {
+    justify-content: stretch;
+  }
+  .lbBtn--primary {
+    width: 100%;
+  }
+}

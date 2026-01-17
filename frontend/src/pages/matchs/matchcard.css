@@ -1,0 +1,93 @@
+/* =========================
+   Bet bar (input + select)
+   ========================= */
+
+.betbar{
+  margin-top: 14px;
+  padding: 12px 12px;
+  border-radius: 18px;
+  background: rgba(42,0,22,.45);
+  border: 1px solid rgba(255,255,255,.10);
+  box-shadow: 0 10px 24px rgba(0,0,0,.18);
+}
+
+.betbar__label{
+  font-weight: 800;
+  margin-bottom: 10px;
+  color: rgba(255,255,255,.92);
+  letter-spacing: .2px;
+}
+
+.betbar__controls{
+  display:grid;
+  grid-template-columns: 1.2fr .8fr 1.8fr;
+  gap: 10px;
+  align-items: center;
+}
+
+/* Input */
+.bet-amount{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  background: rgba(0,0,0,.25);
+  border: 1px solid rgba(255,255,255,.14);
+}
+
+.bet-amount__prefix{
+  font-weight: 900;
+  color: rgba(255,255,255,.9);
+  opacity: .9;
+}
+
+.bet-amount__input{
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: .2px;
+}
+
+.bet-amount__input::placeholder{
+  color: rgba(255,255,255,.55);
+}
+
+/* Select */
+.bet-currency{
+  width: 100%;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(0,0,0,.25);
+  color: #fff;
+  border-radius: 999px;
+  padding: 10px 12px;
+  font-weight: 800;
+  outline: none;
+  cursor: pointer;
+}
+
+.betbar__meta{
+  font-size: 12px;
+  color: rgba(255,255,255,.78);
+  text-align: right;
+}
+
+.betbar__hint{
+  margin-top: 10px;
+  font-size: 12px;
+  color: rgba(255,255,255,.75);
+}
+
+/* responsive */
+@media (max-width: 720px){
+  .betbar__controls{
+    grid-template-columns: 1fr;
+  }
+  .betbar__meta{
+    text-align: left;
+  }
+}

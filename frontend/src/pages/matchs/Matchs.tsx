@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import './styles.css';
+import './match.css';
+
 import { MatchCard } from './MatchCard';
 import { InfoCard } from './InfoCard';
 import { Layout } from './Layout';
+
 import { Wallet } from '@gear-js/wallet-connect';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 
 import { useApi } from '@gear-js/react-hooks';
 import { web3Enable } from '@polkadot/extension-dapp';
@@ -14,56 +16,16 @@ import { HexString } from '@gear-js/api';
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as string;
 
 export const matchCardPropsById = {
-  '1': {
-    id: '1',
-    flag1: '/flags/qatar.jpg',
-    flag2: '/flags/ecuador.jpg',
-  },
-  '2': {
-    id: '2',
-    flag1: '/flags/usa.jpg',
-    flag2: '/flags/ghana.jpg',
-  },
-  '3': {
-    id: '3',
-    flag1: '/flags/mexico.jpg',
-    flag2: '/flags/netherlands.jpg',
-  },
-  '4': {
-    id: '4',
-    flag1: '/flags/england.jpg',
-    flag2: '/flags/canada.png',
-  },
-  '5': {
-    id: '5',
-    flag1: '/flags/argentina.jpg',
-    flag2: '/flags/poland.jpg',
-  },
-  '6': {
-    id: '6',
-    flag1: '/flags/morocco.jpg',
-    flag2: '/flags/korea_republic.jpg',
-  },
-  '7': {
-    id: '7',
-    flag1: '/flags/usa.jpg',
-    flag2: '/flags/netherlands.jpg',
-  },
-  '8': {
-    id: '8',
-    flag1: '/flags/mexico.jpg',
-    flag2: '/flags/ghana.jpg',
-  },
-  '9': {
-    id: '9',
-    flag1: '/flags/england.jpg',
-    flag2: '/flags/japan.jpg',
-  },
-  '10': {
-    id: '10',
-    flag1: '/flags/argentina.jpg',
-    flag2: '/flags/morocco.jpg',
-  },
+  '1': { id: '1', flag1: '/flags/qatar.jpg', flag2: '/flags/ecuador.jpg' },
+  '2': { id: '2', flag1: '/flags/usa.jpg', flag2: '/flags/ghana.jpg' },
+  '3': { id: '3', flag1: '/flags/mexico.jpg', flag2: '/flags/netherlands.jpg' },
+  '4': { id: '4', flag1: '/flags/england.jpg', flag2: '/flags/canada.png' },
+  '5': { id: '5', flag1: '/flags/argentina.jpg', flag2: '/flags/poland.jpg' },
+  '6': { id: '6', flag1: '/flags/morocco.jpg', flag2: '/flags/korea_republic.jpg' },
+  '7': { id: '7', flag1: '/flags/usa.jpg', flag2: '/flags/netherlands.jpg' },
+  '8': { id: '8', flag1: '/flags/mexico.jpg', flag2: '/flags/ghana.jpg' },
+  '9': { id: '9', flag1: '/flags/england.jpg', flag2: '/flags/japan.jpg' },
+  '10': { id: '10', flag1: '/flags/argentina.jpg', flag2: '/flags/morocco.jpg' },
 } as const;
 
 type MatchId = keyof typeof matchCardPropsById;
@@ -111,11 +73,13 @@ function sumAllMatchPools(matches: MatchInfo[]) {
   return total;
 }
 
+type BetCurrency = 'VARA' | 'wUSDC' | 'wUSDT';
+
 function Match() {
   const { id: rawId } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { api, isApiReady } = useApi();
 
-  // ✅ validate route param safely
   const matchId: MatchId | null = useMemo(() => {
     if (!rawId) return null;
     return Object.prototype.hasOwnProperty.call(matchCardPropsById, rawId) ? (rawId as MatchId) : null;
@@ -127,7 +91,16 @@ function Match() {
   const [loadingState, setLoadingState] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // ✅ enable extensions once (don’t crash UI if user has none)
+  const [betAmount, setBetAmount] = useState<string>('10');
+  const [betCurrency, setBetCurrency] = useState<BetCurrency>('VARA');
+
+  const betAmountNumber = useMemo(() => {
+    const n = Number(String(betAmount).replace(',', '.'));
+    return Number.isFinite(n) ? n : 0;
+  }, [betAmount]);
+
+  const betDisabled = !betAmount || betAmountNumber <= 0;
+
   useEffect(() => {
     void (async () => {
       try {
@@ -184,7 +157,6 @@ function Match() {
   const grandPrizeText = useMemo(() => formatToken(grandPrizeBn), [grandPrizeBn]);
   const allPoolsText = useMemo(() => formatToken(allPoolsBn), [allPoolsBn]);
 
-  // (optional) match-specific pools, if you want to display it later
   const selectedMatchPools = useMemo(() => {
     if (!matchId || !state?.matches?.length) return null;
     return state.matches.find((m) => String(m.match_id) === String(matchId)) ?? null;
@@ -198,73 +170,128 @@ function Match() {
     return `${grandPrizeText} VARA`;
   }, [PROGRAM_ID, isApiReady, loadingState, error, grandPrizeText]);
 
+  const addressMock = '0x5al3…2';
+  const positionMock = '#10';
+  const pointsMock = '55';
+
   return (
     <Layout>
-      <div className="left-column">
-        <InfoCard title="Grand Prize" highlight={prizeHighlight}>
-          <ul className="info-list">
-            <li>
-              Total Grand Prize: <b>{loadingState ? 'Loading…' : `${grandPrizeText} VARA`}</b>
-            </li>
-            <li>
-              Total Pool: <b>{loadingState ? 'Loading…' : `${allPoolsText} VARA`}</b>
-            </li>
-            {error ? (
-              <li>
-                Status: <b>{error}</b>
-              </li>
-            ) : null}
-          </ul>
-        </InfoCard>
+      <div className="match-screen">
+        <div className="match-page__topbar">
+          <div className="brand">
+            <div className="brand__logo">smartcupLeague</div>
+          </div>
 
-        <InfoCard title="Matches Participation">
-          <p>50% (32/64) games</p>
-          <p>
-            <b>CONGRATS</b>
-          </p>
-          <p>You are eligible to win the Grand Prize</p>
+          <button className="btn-back" onClick={() => navigate(-1)}>
+            BACK
+          </button>
+        </div>
 
-          {/* Optional: show pools for the selected match (if present) */}
-          {selectedMatchPools ? (
-            <div style={{ marginTop: 12 }}>
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>Selected match pools</div>
+        <div className="match-page">
+          <aside className="left-column">
+            <InfoCard title="Until now you win" highlight="+US$50.00" />
+
+            <InfoCard title="Grand Prize" highlight={prizeHighlight}>
               <ul className="info-list">
                 <li>
-                  Home: <b>{formatToken(selectedMatchPools.pool_home)} VARA</b>
+                  Total Grand Prize: <b>{loadingState ? 'Loading…' : `${grandPrizeText} VARA`}</b>
                 </li>
                 <li>
-                  Draw: <b>{formatToken(selectedMatchPools.pool_draw)} VARA</b>
+                  Total Pool: <b>{loadingState ? 'Loading…' : `${allPoolsText} VARA`}</b>
                 </li>
-                <li>
-                  Away: <b>{formatToken(selectedMatchPools.pool_away)} VARA</b>
-                </li>
+                {error ? (
+                  <li>
+                    Status: <b>{error}</b>
+                  </li>
+                ) : null}
               </ul>
+            </InfoCard>
+
+            <InfoCard title="Matches Participation">
+              <p className="dim">50% (32/64) games</p>
+              <p>
+                <b>CONGRATS</b>
+              </p>
+              <p className="dim">you are a eligible to win the Grand Prize</p>
+
+              {selectedMatchPools ? (
+                <div className="mini-section">
+                  <div className="mini-section__title">Selected match pools</div>
+                  <ul className="info-list">
+                    <li>
+                      Home: <b>{formatToken(selectedMatchPools.pool_home)} VARA</b>
+                    </li>
+                    <li>
+                      Draw: <b>{formatToken(selectedMatchPools.pool_draw)} VARA</b>
+                    </li>
+                    <li>
+                      Away: <b>{formatToken(selectedMatchPools.pool_away)} VARA</b>
+                    </li>
+                  </ul>
+                </div>
+              ) : null}
+            </InfoCard>
+
+            <InfoCard title="Points Calculation">
+              <p className="dim">Match n# 1 : win 2 pts.</p>
+              <p className="dim">Match n# 2 : win 1 pts.</p>
+              <p className="dim">Match n# 3 : win 2 pts.</p>
+              <p className="dim">Match n# 4 : win 1 pts.</p>
+              <p className="dim">Match n# 5 : win 2 pts.</p>
+              <p className="dim">Match n# 6 : win 1 pts.</p>
+              <p className="dim">Match n# 7 : win 2 pts.</p>
+              <p className="dim">Match n# 8 : win 1 pts.</p>
+            </InfoCard>
+          </aside>
+
+          <section className="main-column">
+            <header className="top-summary">
+              <div className="top-summary__left">
+                <div className="top-summary__row">
+                  Your Address: <span className="dim">{addressMock}</span>
+                </div>
+                <div className="top-summary__row">
+                  Total Grand Prize: <b>{loadingState ? 'Loading…' : `${grandPrizeText} VARA`}</b>
+                </div>
+              </div>
+
+              <div className="top-summary__right">
+                <div className="top-summary__row">
+                  GrandPrize Pos: <b>{positionMock}</b>
+                </div>
+                <div className="top-summary__row">
+                  Points: <b>{pointsMock}</b>
+                </div>
+              </div>
+
+              <div className="top-summary__wallet">
+                <Wallet />
+              </div>
+            </header>
+
+            {matchProps ? (
+              <div className="match-panel">
+                <div className="match-panel__pill">Partida n#: {matchId}</div>
+
+                <div className="match-panel__body">
+                  <MatchCard {...matchProps} />
+                </div>
+              </div>
+            ) : (
+              <div className="info-card">
+                <h3 className="info-card__title">Match not found</h3>
+                <div className="info-card__body">The selected match does not exist.</div>
+              </div>
+            )}
+
+            <div className="status-strip">
+              {!PROGRAM_ID ? <div className="dim">Missing env: VITE_BOLAOCOREPROGRAM</div> : null}
+              {error ? <div className="dim">State: {error}</div> : null}
             </div>
-          ) : null}
-        </InfoCard>
-      </div>
+          </section>
+        </div>
 
-      <div className="main-column">
-        <header className="top-summary">
-          <div className="top-summary__right">
-            <div>Grand Prize: {loadingState ? 'Loading…' : `${grandPrizeText} VARA`}</div>
-            {!PROGRAM_ID ? <div style={{ opacity: 0.8 }}>Missing env: VITE_BOLAOCOREPROGRAM</div> : null}
-            {error ? <div style={{ opacity: 0.8 }}>State: {error}</div> : null}
-          </div>
-
-          <div className="top-summary__wallet">
-            <Wallet />
-          </div>
-        </header>
-
-        {matchProps ? (
-          <MatchCard {...matchProps} />
-        ) : (
-          <div className="info-card">
-            <h3 className="info-card__title">Match not found</h3>
-            <div className="info-card__body">The selected match does not exist.</div>
-          </div>
-        )}
+        <footer className="match-footer">COPYRIGHTS 2025, SMART CUP LEAGUE</footer>
       </div>
     </Layout>
   );

@@ -1,0 +1,307 @@
+:root {
+  --vino-950: #1b0010;
+  --vino-900: #2a0016;
+  --vino-850: #320019;
+  --vino-800: #3a001f;
+  --vino-700: #4a0029;
+  --vino-600: #650035;
+  --vino-500: #8b1e3f;
+  --rosa-500: #d81b60;
+
+  --card-brown: rgba(80, 45, 25, 0.55);
+  --card-brown-2: rgba(80, 45, 25, 0.42);
+
+  --text: #f3e9ee;
+  --text-dim: rgba(243, 233, 238, 0.85);
+
+  --radius-xl: 26px;
+  --radius-lg: 20px;
+  --radius-md: 14px;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+
+/* Pantalla con fondo tipo cancha */
+.match-screen {
+  min-height: 100vh;
+  padding: 18px 18px 0;
+  background: radial-gradient(circle at 50% 20%, rgba(255, 255, 255, 0.12), transparent 35%),
+    radial-gradient(circle at 50% 70%, rgba(255, 255, 255, 0.1), transparent 38%),
+    linear-gradient(180deg, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.55)),
+    repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.06) 0px,
+      rgba(255, 255, 255, 0.06) 120px,
+      rgba(255, 255, 255, 0.02) 120px,
+      rgba(255, 255, 255, 0.02) 240px
+    ),
+    linear-gradient(180deg, #2e6b2f, #1f5621);
+  background-blend-mode: soft-light, soft-light, normal, overlay, normal;
+}
+
+/* Topbar (logo + back) */
+.match-page__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 6px 18px;
+}
+
+.brand__logo {
+  font-weight: 800;
+  font-size: 34px;
+  letter-spacing: 0.3px;
+  color: var(--vino-500);
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.25);
+}
+
+.btn-back {
+  border: none;
+  cursor: pointer;
+  padding: 10px 18px;
+  border-radius: 999px;
+  color: var(--text);
+  background: linear-gradient(180deg, var(--vino-600), var(--vino-800));
+  box-shadow: var(--shadow);
+  font-weight: 700;
+}
+
+.btn-back:active {
+  transform: translateY(1px);
+}
+
+/* 2 columnas */
+.match-page {
+  display: grid;
+  grid-template-columns: 290px 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+/* Sidebar */
+.left-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Columna principal */
+.main-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* Utilidades */
+.dim {
+  color: var(--text-dim);
+}
+
+/* Barra superior vino dentro del main */
+.top-summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 18px;
+  border-radius: var(--radius-xl);
+  background: linear-gradient(180deg, rgba(74, 0, 41, 0.92), rgba(42, 0, 22, 0.92));
+  box-shadow: var(--shadow);
+  color: var(--text);
+}
+
+.top-summary__left,
+.top-summary__right {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.top-summary__row {
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.top-summary__wallet {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+
+/* Panel del partido */
+.match-panel {
+  position: relative;
+  border-radius: var(--radius-xl);
+  background: linear-gradient(180deg, var(--card-brown), var(--card-brown-2));
+  box-shadow: var(--shadow);
+  padding: 18px;
+  overflow: hidden;
+  min-height: 420px;
+}
+
+/* Pill "Partida n#" */
+.match-panel__pill {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--rosa-500), #a10f49);
+  color: #fff;
+  font-weight: 800;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.25);
+}
+
+/* Cuerpo del match: deja espacio arriba para el pill */
+.match-panel__body {
+  padding-top: 50px;
+}
+
+/* CTA area */
+.match-panel__cta {
+  margin-top: 14px;
+}
+
+/* ✅ Bet box (input + select + button) */
+.bet-box {
+  border-radius: 18px;
+  padding: 14px;
+  background: rgba(42, 0, 22, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+}
+
+.bet-box__label {
+  font-weight: 800;
+  margin-bottom: 10px;
+  color: rgba(255, 255, 255, 0.92);
+  letter-spacing: 0.2px;
+}
+
+.bet-controls {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr 1.6fr;
+  gap: 10px;
+  align-items: center;
+}
+
+/* Input amount */
+.bet-amount {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.bet-amount__prefix {
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.9);
+  opacity: 0.9;
+}
+
+.bet-amount__input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+.bet-amount__input::placeholder {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.bet-currency {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.25);
+  color: #fff;
+  border-radius: 999px;
+  padding: 10px 12px;
+  font-weight: 800;
+  outline: none;
+  cursor: pointer;
+}
+
+.bet-btn {
+  border: none;
+  cursor: pointer;
+  padding: 10px 18px;
+  border-radius: 999px;
+  color: #fff;
+  font-weight: 900;
+  background: linear-gradient(180deg, var(--rosa-500), #a10f49);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.25);
+  white-space: nowrap;
+}
+
+.bet-btn:active {
+  transform: translateY(1px);
+}
+
+.bet-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: grayscale(0.15);
+}
+
+.bet-hint {
+  margin-top: 10px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.match-footer {
+  margin-top: 20px;
+  background: linear-gradient(180deg, rgba(42, 0, 22, 0.96), rgba(27, 0, 16, 0.98));
+  padding: 26px 18px;
+  border-top-left-radius: 18px;
+  border-top-right-radius: 18px;
+  color: rgba(255, 255, 255, 0.65);
+  text-align: left;
+  letter-spacing: 0.4px;
+}
+
+.mini-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.mini-section__title {
+  font-weight: 800;
+  margin-bottom: 8px;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.status-strip {
+  display: flex;
+  gap: 12px;
+  padding: 8px 4px;
+}
+
+@media (max-width: 980px) {
+  .match-page {
+    grid-template-columns: 1fr;
+  }
+
+  .bet-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .top-summary {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .top-summary__wallet {
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+}

@@ -5,7 +5,7 @@ import { web3Enable, web3FromSource } from '@polkadot/extension-dapp';
 import { Program, Service } from '@/hocs/lib';
 import { TransactionBuilder } from 'sails-js';
 import { useToast } from '@/hooks/useToast';
-import './styles.css';
+import "./matchcard.css"
 
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM;
 
@@ -45,6 +45,8 @@ export interface MatchCardProps {
   flag1: string;
   flag2: string;
 }
+
+type BetCurrency = 'VARA' | 'wUSDC' | 'wUSDT';
 
 function formatKickoffMs(msString: string) {
   const ms = Number(msString);
@@ -147,7 +149,8 @@ const OddsTable: React.FC<{
                 style={{
                   background: isSel ? 'var(--maroon-light)' : 'var(--accent)',
                   opacity: disabled ? 0.55 : 1,
-                }}>
+                }}
+              >
                 {isSel ? 'Selected' : 'Choose'}
               </button>
             </div>
@@ -169,6 +172,17 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2 }) => {
 
   const [selected, setSelected] = useState<Outcome | null>(null);
   const [txLoading, setTxLoading] = useState(false);
+
+  // ✅ NUEVO: monto + moneda
+  const [betAmount, setBetAmount] = useState<string>('10');
+  const [betCurrency, setBetCurrency] = useState<BetCurrency>('VARA');
+
+  const betAmountNumber = useMemo(() => {
+    const n = Number(String(betAmount).replace(',', '.'));
+    return Number.isFinite(n) ? n : 0;
+  }, [betAmount]);
+
+  const betDisabledByAmount = !betAmount || betAmountNumber <= 0;
 
   const leftFlagSrc = useMemo(() => resolveFlag(flag1), [flag1]);
   const rightFlagSrc = useMemo(() => resolveFlag(flag2), [flag2]);
@@ -207,6 +221,16 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2 }) => {
     return Number(match.kick_off) > Date.now(); // ms
   }, [match]);
 
+  // ✅ Convertir VARA (decimal) a planck (1e12)
+  const VARA_DECIMALS = 12n;
+  const toPlanck = (amount: number): bigint => {
+    // Evita floats raros: convertimos a string con 12 decimales y lo parseamos
+    const fixed = amount.toFixed(12); // "10.000000000000"
+    const [i, f = ''] = fixed.split('.');
+    const frac = (f + '0'.repeat(12)).slice(0, 12);
+    return BigInt(i || '0') * 10n ** VARA_DECIMALS + BigInt(frac || '0');
+  };
+
   const handleBet = useCallback(async () => {
     if (!match) return;
 
@@ -226,6 +250,10 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2 }) => {
       toast.error('Betting is closed (kick-off time has passed)');
       return;
     }
+    if (!betAmountNumber || betAmountNumber <= 0) {
+      toast.error('Enter a valid bet amount');
+      return;
+    }
 
     try {
       setTxLoading(true);
@@ -234,7 +262,16 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2 }) => {
       const tx: TransactionBuilder<unknown> = svc.bet(BigInt(match.match_id), selected);
 
       const { signer } = await web3FromSource(account.meta.source);
-      tx.withAccount(account.decodedAddress, { signer }).withValue(BigInt(10000000000000));
+
+      if (betCurrency === 'VARA') {
+        // ✅ En VARA sí usamos value
+        tx.withAccount(account.decodedAddress, { signer }).withValue(toPlanck(betAmountNumber));
+      } else {
+        // ⚠️ Normalmente para wUSDC/wUSDT se requiere otro flujo (approve/transfer)
+        // Dejo el tx sin value y aviso.
+        tx.withAccount(account.decodedAddress, { signer }).withValue(0n);
+        toast.info(`Selected ${betCurrency}. You may need an ERC20-like approve/transfer flow.`);
+      }
 
       await tx.calculateGas();
       const { blockHash, response } = await tx.signAndSend();
@@ -250,12 +287,20 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2 }) => {
     } finally {
       setTxLoading(false);
     }
-  }, [match, selected, account, api, isApiReady, isBeforeKickoff, toast, fetchState]);
+  }, [
+    match,
+    selected,
+    account,
+    api,
+    isApiReady,
+    isBeforeKickoff,
+    toast,
+    fetchState,
+    betAmountNumber,
+    betCurrency,
+  ]);
 
-  const betAmount = 10;
   const disabledPick = txLoading || !isBeforeKickoff;
-
-  /* ---------- UI states ---------- */
 
   if (loading) {
     return (
@@ -339,16 +384,51 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2 }) => {
           </div>
         </div>
 
-        {/* Odds + picks */}
         <OddsTable rows={oddsRows} selected={selected} onPick={setSelected} disabled={disabledPick} />
 
-        {/* Footer */}
-        <div className="match-card__footer" style={{ gap: 10 }}>
-          <div style={{ marginRight: 'auto', fontSize: 12, opacity: 0.9 }}>
-            Prize Pool: <b>{totalPool(match) / 1000000000000} VARA</b>
-            {' · '}Has predictions: <b>{match.has_bets ? 'Yes' : 'No'}</b>
+        {/* ✅ NUEVO: Input + Select atractivo dentro del card */}
+        <div className="betbar">
+          <div className="betbar__label">Bet amount</div>
+
+          <div className="betbar__controls">
+            <div className="bet-amount">
+              <span className="bet-amount__prefix">$</span>
+              <input
+                className="bet-amount__input"
+                inputMode="decimal"
+                value={betAmount}
+                onChange={(e) => setBetAmount(e.target.value)}
+                placeholder="10"
+                disabled={txLoading}
+              />
+            </div>
+
+            <select
+              className="bet-currency"
+              value={betCurrency}
+              onChange={(e) => setBetCurrency(e.target.value as BetCurrency)}
+              disabled={txLoading}
+            >
+              <option value="VARA">VARA</option>
+              <option value="wUSDC">wUSDC</option>
+              <option value="wUSDT">wUSDT</option>
+            </select>
+
+            <div className="betbar__meta">
+              Prize Pool:{' '}
+              <b>{totalPool(match) / 1000000000000} VARA</b>
+              {' · '}Has predictions: <b>{match.has_bets ? 'Yes' : 'No'}</b>
+            </div>
           </div>
 
+          {betDisabledByAmount ? (
+            <div className="betbar__hint">Enter an amount greater than 0.</div>
+          ) : (
+            <div className="betbar__hint">You can bet using VARA or stablecoins (wUSDC / wUSDT).</div>
+          )}
+        </div>
+
+        <div className="match-card__footer" style={{ gap: 10 }}>
           <button className="back-button" onClick={() => navigate(-1)} disabled={txLoading}>
             Back
           </button>
@@ -356,9 +436,10 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2 }) => {
           <button
             className="bet-button"
             onClick={handleBet}
-            disabled={txLoading || !selected || !isBeforeKickoff}
-            style={{ opacity: !isBeforeKickoff ? 0.55 : 1 }}>
-            {txLoading ? 'Sending…' : `Bet ${betAmount.toFixed(2)} VARA`}
+            disabled={txLoading || !selected || !isBeforeKickoff || betDisabledByAmount}
+            style={{ opacity: !isBeforeKickoff ? 0.55 : 1 }}
+          >
+            {txLoading ? 'Sending…' : `Bet ${betAmountNumber > 0 ? betAmountNumber : 0} ${betCurrency}`}
           </button>
         </div>
 

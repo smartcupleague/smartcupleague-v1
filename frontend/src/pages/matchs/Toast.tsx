@@ -18,15 +18,10 @@ const EVENT_NAME = 'app:toast';
 
 export function useToast() {
   return (message: string, type: ToastType = 'info', duration = 3200) => {
-    window.dispatchEvent(
-      new CustomEvent<ToastEvent>(EVENT_NAME, { detail: { message, type, duration } })
-    );
+    window.dispatchEvent(new CustomEvent<ToastEvent>(EVENT_NAME, { detail: { message, type, duration } }));
   };
 }
 
-/**
- * Render this ONCE (App/Layout). No provider needed.
- */
 export function ToastHost() {
   const [toasts, setToasts] = useState<Array<Toast & { leaving?: boolean }>>([]);
 
@@ -38,12 +33,10 @@ export function ToastHost() {
 
       setToasts((prev) => [...prev, { id, message, type }]);
 
-      // start leave animation
       window.setTimeout(() => {
         setToasts((prev) => prev.map((t) => (t.id === id ? { ...t, leaving: true } : t)));
       }, Math.max(0, duration - 260));
 
-      // remove
       window.setTimeout(() => {
         setToasts((prev) => prev.filter((t) => t.id !== id));
       }, duration);
@@ -62,8 +55,7 @@ export function ToastHost() {
             ...styles.toast,
             ...stylesByType[t.type],
             ...(t.leaving ? styles.leaving : {}),
-          }}
-        >
+          }}>
           <span style={styles.icon}>{iconFor(t.type)}</span>
           <span style={styles.text}>{t.message}</span>
         </div>
@@ -140,7 +132,6 @@ const stylesByType: Record<ToastType, React.CSSProperties> = {
   warning: { background: 'linear-gradient(135deg, rgba(255,183,3,.98), rgba(251,133,0,.95))' },
   info: { background: 'linear-gradient(135deg, rgba(77,171,247,.98), rgba(28,126,214,.95))' },
 };
-
 
 const styleTagId = '__toast_keyframes__';
 if (typeof document !== 'undefined' && !document.getElementById(styleTagId)) {
