@@ -1,93 +1,507 @@
-/* =========================
-   Bet bar (input + select)
-   ========================= */
+:root {
+  --wine-900: #17000c;
+  --wine-800: #240016;
+  --wine-700: #3a0322;
+  --wine-600: #4e0a31;
+  --wine-500: #7a1349;
+  --accent: #ff006e;
+  --accent-soft: #ff4f9c;
+  --text: rgba(255, 255, 255, 0.92);
+  --muted: rgba(255, 255, 255, 0.7);
+  --muted-2: rgba(255, 255, 255, 0.55);
 
-.betbar{
-  margin-top: 14px;
-  padding: 12px 12px;
+  --border: rgba(255, 255, 255, 0.12);
+  --border-2: rgba(255, 255, 255, 0.18);
+
+  --panel: rgba(36, 0, 22, 0.55);
+  --panel-2: rgba(23, 0, 12, 0.45);
+  --shadow: 0 18px 38px rgba(0, 0, 0, 0.35);
+}
+
+.dim {
+  color: var(--muted);
+}
+
+.dim {
+  color: var(--muted);
+}
+
+.mcx {
+  position: relative;
   border-radius: 18px;
-  background: rgba(42,0,22,.45);
-  border: 1px solid rgba(255,255,255,.10);
-  box-shadow: 0 10px 24px rgba(0,0,0,.18);
+  border: 1px solid var(--border);
+
+  background:
+    radial-gradient(900px 520px at 70% 26%, rgba(255, 0, 110, 0.12), transparent 62%),
+    radial-gradient(760px 520px at 22% 24%, rgba(255, 79, 156, 0.08), transparent 62%),
+    linear-gradient(180deg, var(--panel), var(--panel-2)), linear-gradient(180deg, var(--wine-700), var(--wine-900));
+
+  box-shadow: var(--shadow);
+
+  color: var(--text);
+
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+
+  padding: 18px 18px 16px;
+  overflow: hidden;
 }
 
-.betbar__label{
-  font-weight: 800;
-  margin-bottom: 10px;
-  color: rgba(255,255,255,.92);
-  letter-spacing: .2px;
+.mcx__trophy {
+  position: absolute;
+  right: 10px;
+  top: 12px;
+  width: 250px;
+  height: 250px;
+  object-fit: contain;
+  opacity: 0.95;
+  pointer-events: none;
+  filter: drop-shadow(0 18px 40px rgba(0, 0, 0, 0.55));
 }
 
-.betbar__controls{
-  display:grid;
-  grid-template-columns: 1.2fr .8fr 1.8fr;
-  gap: 10px;
+@media (max-width: 880px) {
+  .mcx__trophy {
+    width: 110px;
+  }
+}
+
+.mcx__header {
+  text-align: center;
+  padding-top: 2px;
+  padding-bottom: 10px;
+}
+
+.mcx__phase {
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+/* ====== SCORE TOP ====== */
+.mcx__scoreTop {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
+  gap: 16px;
+  padding: 6px 12px 4px;
 }
 
-/* Input */
-.bet-amount{
-  display:flex;
-  align-items:center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 999px;
-  background: rgba(0,0,0,.25);
-  border: 1px solid rgba(255,255,255,.14);
+.mcx__side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
 }
 
-.bet-amount__prefix{
+.mcx__flagLg {
+  width: 78px;
+  height: 52px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.35);
+}
+
+.mcx__teamLbl {
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.mcx__midScore {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 10px 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 215, 120, 0.24);
+  background: rgba(0, 0, 0, 0.18);
+  min-width: 220px;
+}
+
+.mcx__bigN {
+  font-size: 44px;
   font-weight: 900;
-  color: rgba(255,255,255,.9);
-  opacity: .9;
+  line-height: 1;
 }
 
-.bet-amount__input{
-  width: 100%;
-  border: none;
-  outline: none;
-  background: transparent;
-  color: #fff;
-  font-size: 16px;
-  font-weight: 800;
-  letter-spacing: .2px;
+.mcx__vs {
+  font-size: 13px;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.75);
 }
 
-.bet-amount__input::placeholder{
-  color: rgba(255,255,255,.55);
+@media (max-width: 720px) {
+  .mcx__scoreTop {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .mcx__midScore {
+    margin: 0 auto;
+  }
 }
 
-/* Select */
-.bet-currency{
-  width: 100%;
-  border: 1px solid rgba(255,255,255,.14);
-  background: rgba(0,0,0,.25);
-  color: #fff;
-  border-radius: 999px;
-  padding: 10px 12px;
-  font-weight: 800;
-  outline: none;
-  cursor: pointer;
-}
-
-.betbar__meta{
-  font-size: 12px;
-  color: rgba(255,255,255,.78);
-  text-align: right;
-}
-
-.betbar__hint{
+/* ====== since predicted ====== */
+.mcx__since {
   margin-top: 10px;
-  font-size: 12px;
-  color: rgba(255,255,255,.75);
+  text-align: center;
+  font-size: 13px;
 }
 
-/* responsive */
-@media (max-width: 720px){
-  .betbar__controls{
+/* ====== mini badge row ====== */
+.mcx__miniBadge {
+  margin-top: 12px;
+  width: fit-content;
+  margin-left: auto;
+  margin-right: auto;
+
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  padding: 8px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 215, 120, 0.22);
+  background: rgba(0, 0, 0, 0.16);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.35);
+}
+
+.mcx__miniTeam {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mcx__flagSm {
+  width: 34px;
+  height: 22px;
+  border-radius: 6px;
+  object-fit: cover;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.mcx__miniN {
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.mcx__miniVS {
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* ===== result line ===== */
+.mcx__resultLine {
+  margin-top: 12px;
+  text-align: center;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+/* ===== Claim button ===== */
+.mcx__claimBtn {
+  margin: 16px auto 0;
+  width: min(560px, 100%);
+  padding: 14px 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 215, 120, 0.3);
+  background: linear-gradient(180deg, rgba(160, 70, 120, 0.62), rgba(60, 18, 40, 0.62));
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 16px;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+  transition:
+    transform 0.12s ease,
+    filter 0.12s ease,
+    opacity 0.12s ease;
+}
+
+.mcx__claimBtn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.05);
+}
+.mcx__claimBtn:active {
+  transform: translateY(0px);
+  filter: brightness(0.98);
+}
+.mcx__claimBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.mcx__claimSub {
+  margin-top: 10px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* ===== bottom reward + view all ===== */
+.mcx__bottom {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.mcx__reward {
+  width: min(360px, 100%);
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.26);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+}
+
+.mcx__rewardVal {
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  color: rgba(170, 255, 140, 0.95);
+}
+
+.mcx__rewardList {
+  margin: 8px 0 0;
+  padding-left: 16px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.mcx__viewAll {
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.18);
+  color: rgba(255, 255, 255, 0.86);
+  cursor: pointer;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.mcx__arrow {
+  margin-left: 6px;
+}
+
+.mcx__details {
+  margin-top: 14px;
+  border-top: 1px solid var(--line2);
+  padding-top: 12px;
+}
+
+.mcx__summary {
+  cursor: pointer;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.mcx__formGrid {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 720px) {
+  .mcx__formGrid {
     grid-template-columns: 1fr;
   }
-  .betbar__meta{
-    text-align: left;
-  }
+}
+
+.mcx__formCol {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mcx__label {
+  font-size: 12px;
+}
+
+.mcx__inp {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.25);
+  color: rgba(255, 255, 255, 0.92);
+  outline: none;
+}
+
+.mcx__inp:focus {
+  border-color: rgba(255, 215, 120, 0.3);
+  box-shadow: 0 0 0 3px rgba(255, 215, 120, 0.08);
+}
+
+.mcx__sel {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.25);
+  color: rgba(255, 255, 255, 0.92);
+  outline: none;
+}
+
+.mcx__penBox {
+  margin-top: 12px;
+  border-top: 1px solid var(--line2);
+  padding-top: 12px;
+}
+
+.mcx__penTitle {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.mcx__warn {
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(255, 120, 120, 0.95);
+}
+
+.mcx__meta {
+  margin-top: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.mcx__closed {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.mcx__body {
+  padding: 12px 4px 6px;
+}
+
+.mcx__ghostBtn {
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.18);
+  color: rgba(255, 255, 255, 0.86);
+  cursor: pointer;
+}
+.mcx__betBtn {
+  margin-top: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.22);
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.mcx__betBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.mcx__claimBtn {
+  width: min(560px, 100%);
+  margin: 16px auto 0;
+  padding: 16px 20px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 215, 120, 0.28);
+  background: linear-gradient(180deg, rgba(160, 70, 120, 0.35), rgba(60, 18, 40, 0.25));
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    filter 0.12s ease,
+    opacity 0.12s ease;
+}
+
+.mcx__claimBtn.is-disabled,
+.mcx__claimBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.2);
+  transform: none;
+}
+
+/* ✅ CLAIM disponible (solo cuando Finalized) */
+.mcx__claimBtn.is-ready:not(:disabled) {
+  opacity: 1;
+  background: linear-gradient(180deg, rgba(210, 95, 145, 0.62), rgba(95, 30, 65, 0.52));
+  border-color: rgba(255, 215, 120, 0.35);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+}
+
+.mcx__claimBtn.is-ready:not(:disabled):hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+}
+
+/* ✅ BOTÓN PREDICTION “vino” más atractivo */
+.mcx__betBtn {
+  width: min(640px, 100%);
+  margin: 14px auto 0;
+  padding: 14px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.22);
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    transform 0.12s ease,
+    filter 0.12s ease,
+    opacity 0.12s ease;
+}
+
+.mcx__betBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* variante vino */
+.mcx__betBtn--wine:not(:disabled) {
+  border-color: rgba(255, 215, 120, 0.28);
+  background: linear-gradient(180deg, rgba(210, 95, 145, 0.55), rgba(85, 26, 56, 0.45));
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+}
+
+.mcx__betBtn--wine:not(:disabled):hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+}
+
+.mcx__claimBtn {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.mcx__betBtn {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.mcx__bottom {
+  display: flex;
+  justify-content: center;
 }

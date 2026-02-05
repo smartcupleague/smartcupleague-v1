@@ -12,16 +12,20 @@ import { Program as DaoProgram, Service as DaoService } from '@/hocs/dao';
 const CORE_PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as string;
 const DAO_PROGRAM_ID = import.meta.env.VITE_DAOPROGRAM as string;
 
+const VARA_DECIMALS = 12;
+
 type CoreMatch = {
   match_id: number | string;
   phase: string;
   home: string;
   away: string;
-  kick_off: number; // ms
-  result: { finalized?: { outcome: string } } | { unresolved?: null };
-  pool_home: string | number | bigint;
-  pool_draw: string | number | bigint;
-  pool_away: string | number | bigint;
+  kick_off: number; // ms or seconds
+  result: any;
+  total_pool: string | number | bigint;
+  pool_home?: string | number | bigint;
+  pool_draw?: string | number | bigint;
+  pool_away?: string | number | bigint;
+
   has_bets: boolean;
   participants: string[];
 };
@@ -42,8 +46,8 @@ type DaoProposal = {
   proposer: `0x${string}`;
   kind: Record<string, any>;
   description: string;
-  start_time: number; // ms
-  end_time: number; // ms
+  start_time: number;
+  end_time: number;
   yes: number;
   no: number;
   abstain: number;
@@ -51,7 +55,70 @@ type DaoProposal = {
   executed: boolean;
 };
 
-const VARA_DECIMALS = 12;
+/**
+ * ✅ Mapa de banderas (agrega aquí todos los que uses)
+ * Tip: usa rutas en /public/flags/...
+ */
+const TEAM_FLAGS: Record<string, string> = {
+  // Canonical
+  MEXICO: '/flags/mexico.jpg',
+  ARGENTINA: '/flags/argentina.jpg',
+  ENGLAND: '/flags/england.jpg',
+  IRAN: '/flags/iran.jpg',
+  ECUADOR: '/flags/ecuador.jpg',
+  QATAR: '/flags/qatar.jpg',
+  'SAUDI ARABIA': '/flags/saudi_arabia.jpg',
+  'SOUTH AFRICA': '/flags/South_Africa.png',
+
+  // ✅ Aliases / Códigos / Variantes comunes
+  MEX: '/flags/mexico.jpg',
+  MEXICO_: '/flags/mexico.jpg', // por si llega raro
+
+  ARG: '/flags/argentina.jpg',
+  ENG: '/flags/england.jpg',
+  GBR: '/flags/england.jpg', // ojo: si quieres UK diferente, cambia aquí
+  IRN: '/flags/iran.jpg',
+  ECU: '/flags/ecuador.jpg',
+  QAT: '/flags/qatar.jpg',
+  KSA: '/flags/saudi_arabia.jpg',
+  'SAUDI_ARABIA': '/flags/saudi_arabia.jpg',
+  'SOUTH_AFRICA': '/flags/South_Africa.png',
+  RSA: '/flags/South_Africa.png',
+};
+
+/**
+ * ✅ Normaliza entradas tipo:
+ * "México" -> "MEXICO"
+ * "Saudi_Arabia" -> "SAUDI ARABIA"
+ * " south   africa " -> "SOUTH AFRICA"
+ */
+function normalizeTeamKey(team: string) {
+  const raw = (team || '').trim();
+  if (!raw) return '';
+
+  // quita acentos
+  const noDiacritics = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  // _ y - a espacios, colapsa espacios
+  const spaced = noDiacritics.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+
+  return spaced.toUpperCase();
+}
+
+function flagForTeam(team: string) {
+  const key = normalizeTeamKey(team);
+  if (!key) return '/flags/default.png';
+
+  // 1) match directo
+  if (TEAM_FLAGS[key]) return TEAM_FLAGS[key];
+
+  // 2) si viene con cosas extra tipo "MEXICO (A)" o "MEXICO U-20"
+  // intentamos quedarnos con el primer “token” que parezca código/pais
+  const firstToken = key.split(' ')[0];
+  if (TEAM_FLAGS[firstToken]) return TEAM_FLAGS[firstToken];
+
+  return '/flags/default.png';
+}
 
 function shortHex(addr: string) {
   if (!addr) return '-';
@@ -78,7 +145,11 @@ function safeBigInt(input: unknown): bigint {
   try {
     if (typeof input === 'bigint') return input;
     if (typeof input === 'number') return BigInt(Math.trunc(input));
-    if (typeof input === 'string') return BigInt(input || '0');
+    if (typeof input === 'string') {
+      const s = input.trim();
+      if (!s) return 0n;
+      return BigInt(s.replace(/,/g, ''));
+    }
     return 0n;
   } catch {
     return 0n;
@@ -93,7 +164,21 @@ function formatToken(val: string | number | bigint, decimals = VARA_DECIMALS) {
   return frac ? `${intVal.toString()}.${frac}` : intVal.toString();
 }
 
-function formatDateTime(ms: number) {
+function formatTokenCompact(val: string | number | bigint, decimals = VARA_DECIMALS) {
+  const raw = formatToken(val, decimals);
+  const [i, f] = raw.split('.');
+  const withCommas = i.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  if (!f) return withCommas;
+  return `${withCommas}.${f.slice(0, 2)}`;
+}
+
+function kickOffToMs(input: number) {
+  if (!input || !Number.isFinite(input)) return 0;
+  return input < 10_000_000_000 ? input * 1000 : input;
+}
+
+function formatDateTime(msLike: number) {
+  const ms = kickOffToMs(msLike);
   if (!ms) return '-';
   const d = new Date(ms);
   return (
@@ -103,7 +188,10 @@ function formatDateTime(ms: number) {
   );
 }
 
-function timeFromNow(ms: number) {
+function timeFromNow(msLike: number) {
+  const ms = kickOffToMs(msLike);
+  if (!ms) return '—';
+
   const diff = ms - Date.now();
   const abs = Math.abs(diff);
   const min = Math.floor(abs / 60000);
@@ -115,17 +203,48 @@ function timeFromNow(ms: number) {
 }
 
 function isFinalized(m: CoreMatch) {
-  return !!(m.result as any)?.finalized;
+  return !!((m.result as any)?.finalized || (m.result as any)?.Finalized);
+}
+
+/**
+ * ✅ pool único por match
+ * - si existe total_pool y es > 0 => usamos eso
+ * - si no, fallback legacy sum(pool_home/draw/away)
+ */
+function matchPool(m: CoreMatch): bigint {
+  const tp = safeBigInt((m as any)?.total_pool);
+  if (tp > 0n) return tp;
+
+  const legacy =
+    safeBigInt((m as any)?.pool_home) + safeBigInt((m as any)?.pool_draw) + safeBigInt((m as any)?.pool_away);
+
+  return legacy;
 }
 
 function sumAllMatchPools(matches: CoreMatch[]) {
-  let total = 0n;
-  for (const m of matches) {
-    total += safeBigInt(m.pool_home);
-    total += safeBigInt(m.pool_draw);
-    total += safeBigInt(m.pool_away);
-  }
-  return total;
+  return matches.reduce((acc, m) => acc + matchPool(m), 0n);
+}
+
+/** ✅ Mini componente para bandera con fallback */
+function TeamFlag({ team }: { team: string }) {
+  return (
+    <img
+      src={flagForTeam(team)}
+      alt={`${team} flag`}
+      style={{
+        width: 18,
+        height: 13,
+        borderRadius: 5,
+        border: '1px solid var(--stroke2)',
+        objectFit: 'cover',
+        flex: '0 0 auto',
+      }}
+      onError={(e) => {
+        (e.currentTarget as HTMLImageElement).src = '/flags/default.png';
+      }}
+      loading="lazy"
+    />
+  );
 }
 
 export default function Home() {
@@ -174,9 +293,13 @@ export default function Home() {
       away: String(m?.away ?? ''),
       kick_off: Number(m?.kick_off ?? 0),
       result: m?.result ?? { unresolved: null },
+
+      total_pool: m?.total_pool ?? m?.pool ?? m?.pool_total ?? '0',
+
       pool_home: m?.pool_home ?? '0',
       pool_draw: m?.pool_draw ?? '0',
       pool_away: m?.pool_away ?? '0',
+
       has_bets: Boolean(m?.has_bets),
       participants: Array.isArray(m?.participants) ? m.participants.map(String) : [],
     }));
@@ -281,15 +404,16 @@ export default function Home() {
   const poolsInfo = useMemo(() => {
     const matches = coreState?.matches ?? [];
     const allPoolsBn = matches.length ? sumAllMatchPools(matches) : 0n;
+
     const grandPrizeBn = safeBigInt(coreState?.final_prize_accum ?? 0);
     const feeBn = safeBigInt(coreState?.fee_accum ?? 0);
 
     const withBets = matches.filter((m) => m.has_bets).length;
 
     return {
-      allPoolsText: formatToken(allPoolsBn),
-      grandPrizeText: formatToken(grandPrizeBn),
-      feeText: formatToken(feeBn),
+      allPoolsText: formatTokenCompact(allPoolsBn),
+      grandPrizeText: formatTokenCompact(grandPrizeBn),
+      feeText: formatTokenCompact(feeBn),
       matchesWithBets: withBets,
       totalMatches: matches.length,
     };
@@ -299,7 +423,7 @@ export default function Home() {
     const matches = coreState?.matches ?? [];
     return matches
       .filter((m) => !isFinalized(m))
-      .sort((a, b) => Number(a.kick_off) - Number(b.kick_off))
+      .sort((a, b) => kickOffToMs(Number(a.kick_off)) - kickOffToMs(Number(b.kick_off)))
       .slice(0, 6)
       .map((m) => ({
         id: String(m.match_id),
@@ -323,10 +447,10 @@ export default function Home() {
     const matches = coreState?.matches ?? [];
     return matches
       .filter((m) => isFinalized(m))
-      .sort((a, b) => Number(b.kick_off) - Number(a.kick_off))
+      .sort((a, b) => kickOffToMs(Number(b.kick_off)) - kickOffToMs(Number(a.kick_off)))
       .slice(0, 2)
       .map((m) => {
-        const outcome = (m.result as any).finalized?.outcome ?? 'Finalized';
+        const outcome = (m.result as any)?.finalized?.outcome ?? (m.result as any)?.Finalized?.outcome ?? 'Finalized';
         return {
           title: `${m.home} vs ${m.away} finalized`,
           sub: `Outcome: ${outcome} • ${formatDateTime(Number(m.kick_off))}`,
@@ -345,8 +469,8 @@ export default function Home() {
             <span className="tab__sub">{loading ? 'Syncing…' : 'On-chain'}</span>
           </button>
 
-          <button className="tab tab--ghost" aria-label="More" type="button">
-            ⋯
+          <button className="tab tab--ghost" aria-label="Refresh" type="button" onClick={fetchAll} title="Refresh">
+            ⟳
           </button>
         </div>
 
@@ -411,19 +535,24 @@ export default function Home() {
           </div>
 
           <div className="kpis">
-            <div className="kpi">
-              <div className="kpi__label">Total Pool (all matches)</div>
+            <div className="kpi kpi--good">
+              <div className="kpi__label">Total Pools (ALL matches)</div>
               <div className="kpi__value">
                 {coreState ? poolsInfo.allPoolsText : '—'} <span className="muted">VARA</span>
               </div>
+              <div className="tiny muted" style={{ marginTop: 6 }}>
+                Sum of <span className="mono">total_pool</span> across all matches
+              </div>
             </div>
+
             <div className="kpi">
               <div className="kpi__label">Matches w/ Bets</div>
               <div className="kpi__value">
                 {coreState ? poolsInfo.matchesWithBets : '—'} <span className="muted">matches</span>
               </div>
             </div>
-            <div className="kpi kpi--good">
+
+            <div className="kpi">
               <div className="kpi__label">Fee Accum</div>
               <div className="kpi__value">
                 {coreState ? poolsInfo.feeText : '—'} <span className="muted">VARA</span>
@@ -463,7 +592,7 @@ export default function Home() {
                 <span>{coreState ? `${poolsInfo.feeText} VARA` : '—'}</span>
               </div>
               <div className="row">
-                <span className="muted">Total Pool</span>
+                <span className="muted">Total Pools</span>
                 <span>{coreState ? `${poolsInfo.allPoolsText} VARA` : '—'}</span>
               </div>
             </div>
@@ -553,9 +682,9 @@ export default function Home() {
                 <span>💰</span>
                 <div>
                   <div className="alist__title">
-                    Final Prize Pool{' '}
-                    <span className="muted">• {coreState ? `${poolsInfo.grandPrizeText} VARA` : '—'}</span>
+                    Total Pools <span className="muted">• {coreState ? `${poolsInfo.allPoolsText} VARA` : '—'}</span>
                   </div>
+                  <div className="alist__sub muted">Sum of total_pool across all matches.</div>
                 </div>
               </div>
 
@@ -583,15 +712,35 @@ export default function Home() {
           </div>
 
           <div className="matches">
+            {/* ✅ Columna izquierda: ahora también con banderas */}
             <div className="matches__col">
               {matchesLeft.map((m) => (
                 <div className="match" key={m.id}>
                   <div className="match__main">
-                    <div className="match__teams">
-                      <span className="team">{m.left}</span>
+                    <div className="match__teams" style={{ gap: 10 }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                        <TeamFlag team={m.left} />
+                        <span
+                          className="team"
+                          style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                        >
+                          {m.left}
+                        </span>
+                      </span>
+
                       <span className="vs">~</span>
-                      <span className="team">{m.right}</span>
+
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                        <span
+                          className="team"
+                          style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                        >
+                          {m.right}
+                        </span>
+                        <TeamFlag team={m.right} />
+                      </span>
                     </div>
+
                     <div className="match__meta muted">
                       {m.meta} <span className="dot">•</span> {m.league}
                     </div>
@@ -614,15 +763,35 @@ export default function Home() {
               ) : null}
             </div>
 
+            {/* ✅ Columna derecha: ya tenía banderas, ahora usa el mismo componente */}
             <div className="matches__col">
               {matchesRight.map((m) => (
                 <div className="match" key={m.id}>
                   <div className="match__main">
-                    <div className="match__teams">
-                      <span className="team">{m.left}</span>
+                    <div className="match__teams" style={{ gap: 10 }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                        <TeamFlag team={m.left} />
+                        <span
+                          className="team"
+                          style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                        >
+                          {m.left}
+                        </span>
+                      </span>
+
                       <span className="vs">~</span>
-                      <span className="team">{m.right}</span>
+
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                        <span
+                          className="team"
+                          style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                        >
+                          {m.right}
+                        </span>
+                        <TeamFlag team={m.right} />
+                      </span>
                     </div>
+
                     <div className="match__meta muted">
                       {m.meta} <span className="dot">•</span> {m.league}
                     </div>

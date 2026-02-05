@@ -4,187 +4,217 @@ import { TransactionBuilder, getServiceNamePrefix, getFnNamePrefix, ZERO_ADDRESS
 
 export type ActorId = string;
 
-export type Outcome = 'Home' | 'Draw' | 'Away';
+export interface Score {
+  home: number;
+  away: number;
+}
+
+export type PenaltyWinner = 'Home' | 'Away';
 
 export interface UserBetView {
   match_id: number | string | bigint;
-  selected: Outcome;
-  amount: number | string | bigint;
-  paid: boolean;
+  score: Score;
+  penalty_winner: PenaltyWinner | null;
+  stake_in_match_pool: number | string | bigint;
+  claimed: boolean;
 }
 
-export interface MatchInfo {
+export interface Match {
   match_id: number | string | bigint;
   phase: string;
   home: string;
   away: string;
   kick_off: number | string | bigint;
   result: ResultStatus;
-  pool_home: number | string | bigint;
-  pool_draw: number | string | bigint;
-  pool_away: number | string | bigint;
+  match_prize_pool: number | string | bigint;
   has_bets: boolean;
-  participants: ActorId[];
+  participants: Array<ActorId>;
+  total_winner_stake: number | string | bigint;
+  total_claimed: number | string | bigint;
+  settlement_prepared: boolean;
+  dust_swept: boolean;
 }
 
 export type ResultStatus =
-  | { Unresolved: null }
-  | { Proposed: { outcome: Outcome; oracle: ActorId } }
-  | { Finalized: { outcome: Outcome } };
+  | 'Unresolved'
+  | {
+      Proposed: {
+        score: Score;
+        penalty_winner: PenaltyWinner | null;
+        oracle: ActorId;
+      };
+    }
+  | {
+      Finalized: {
+        score: Score;
+        penalty_winner: PenaltyWinner | null;
+      };
+    };
 
-export interface IoBolaoState {
-  owner: ActorId;
-  kyc_contract: ActorId;
+export interface IoSmartCupState {
+  admin: ActorId;
   final_prize_distributor: ActorId;
-  fee_accum: number | string | bigint;
-  final_prize_accum: number | string | bigint;
-  matches: MatchInfo[];
-  phases: MatchPhase[];
+  protocol_fee_accumulated: number | string | bigint;
+  final_prize_accumulated: number | string | bigint;
+  matches: Array<Match>;
+  phases: Array<PhaseConfig>;
   user_points: Array<[ActorId, number]>;
+  podium_finalized: boolean;
+  r32_lock_time: number | string | bigint | null;
 }
 
-export interface MatchPhase {
+export interface PhaseConfig {
   name: string;
   start_time: number | string | bigint;
   end_time: number | string | bigint;
+  points_weight: number;
 }
 
-export type PhaseRegisteredEvent = string;
-
-export type MatchRegisteredEvent = [number | string | bigint, string, string, string, number | string | bigint];
-
-export interface BetAcceptedEvent {
-  actor_id: ActorId;
-  match_id: number | string | bigint;
-  selected: Outcome;
-  amount: number | string | bigint;
+export interface WalletClaimStatus {
+  wallet: ActorId;
+  amount_claimable: number | string | bigint;
+  already_claimed: boolean;
 }
 
-export interface ResultProposedEvent {
-  match_id: number | string | bigint;
-  outcome: Outcome;
-  oracle: ActorId;
-}
-
-export interface ResultFinalizedEvent {
-  match_id: number | string | bigint;
-  outcome: Outcome;
-}
-
-export interface WinnerPaidEvent {
-  match_id: number | string | bigint;
-  winner: ActorId;
-  amount: number | string | bigint;
-}
-
-export interface FinalPrizeSentEvent {
-  amount: number | string | bigint;
-  recipient: ActorId;
-}
-
-export interface FeeWithdrawnEvent {
-  amount: number | string | bigint;
-  recipient: ActorId;
-}
+export type SmartCupEvent =
+  | { PhaseRegistered: string }
+  | {
+      MatchRegistered: [
+        number | string | bigint,
+        string,
+        string,
+        string,
+        number | string | bigint,
+      ];
+    }
+  | { OracleAuthorized: [ActorId, boolean] }
+  | {
+      BetAccepted: [
+        ActorId,
+        number | string | bigint,
+        Score,
+        PenaltyWinner | null,
+        number | string | bigint,
+      ];
+    }
+  | {
+      ResultProposed: [
+        number | string | bigint,
+        Score,
+        PenaltyWinner | null,
+        ActorId,
+      ];
+    }
+  | {
+      ResultFinalized: [
+        number | string | bigint,
+        Score,
+        PenaltyWinner | null,
+      ];
+    }
+  | { SettlementPrepared: [number | string | bigint, number | string | bigint] }
+  | { PointsAwarded: [ActorId, number | string | bigint, number] }
+  | { MatchRewardClaimed: [number | string | bigint, ActorId, number | string | bigint] }
+  | { MatchDustSwept: [number | string | bigint, number | string | bigint] }
+  | { PodiumPickSubmitted: [ActorId, string, string, string] }
+  | { PodiumFinalized: [string, string, string] }
+  | { PodiumBonusAwarded: [ActorId, number] }
+  | { FinalPrizeSent: [number | string | bigint, ActorId] }
+  | { ProtocolFeesWithdrawn: [number | string | bigint, ActorId] };
 
 const types = {
-  Outcome: { _enum: ['Home', 'Draw', 'Away'] },
+  Score: {
+    home: 'u8',
+    away: 'u8',
+  },
+  PenaltyWinner: { _enum: ['Home', 'Away'] },
   UserBetView: {
     match_id: 'u64',
-    selected: 'Outcome',
-    amount: 'u128',
-    paid: 'bool',
+    score: 'Score',
+    penalty_winner: 'Option<PenaltyWinner>',
+    stake_in_match_pool: 'u128',
+    claimed: 'bool',
   },
-  MatchInfo: {
+  Match: {
     match_id: 'u64',
     phase: 'String',
     home: 'String',
     away: 'String',
     kick_off: 'u64',
     result: 'ResultStatus',
-    pool_home: 'u128',
-    pool_draw: 'u128',
-    pool_away: 'u128',
+    match_prize_pool: 'u128',
     has_bets: 'bool',
     participants: 'Vec<[u8;32]>',
+    total_winner_stake: 'u128',
+    total_claimed: 'u128',
+    settlement_prepared: 'bool',
+    dust_swept: 'bool',
   },
   ResultStatus: {
     _enum: {
       Unresolved: 'Null',
-      Proposed: '{"outcome":"Outcome","oracle":"[u8;32]"}',
-      Finalized: '{"outcome":"Outcome"}',
+      Proposed:
+        '{"score":"Score","penalty_winner":"Option<PenaltyWinner>","oracle":"[u8;32]"}',
+      Finalized: '{"score":"Score","penalty_winner":"Option<PenaltyWinner>"}',
     },
   },
-  IoBolaoState: {
-    owner: '[u8;32]',
-    kyc_contract: '[u8;32]',
+  IoSmartCupState: {
+    admin: '[u8;32]',
     final_prize_distributor: '[u8;32]',
-    fee_accum: 'u128',
-    final_prize_accum: 'u128',
-    matches: 'Vec<MatchInfo>',
-    phases: 'Vec<MatchPhase>',
+    protocol_fee_accumulated: 'u128',
+    final_prize_accumulated: 'u128',
+    matches: 'Vec<Match>',
+    phases: 'Vec<PhaseConfig>',
     user_points: 'Vec<([u8;32], u32)>',
+    podium_finalized: 'bool',
+    r32_lock_time: 'Option<u64>',
   },
-  MatchPhase: {
+  PhaseConfig: {
     name: 'String',
     start_time: 'u64',
     end_time: 'u64',
+    points_weight: 'u32',
   },
-  BetAccepted: {
-    actor_id: '[u8;32]',
-    match_id: 'u64',
-    selected: 'Outcome',
-    amount: 'u128',
+  WalletClaimStatus: {
+    wallet: '[u8;32]',
+    amount_claimable: 'u128',
+    already_claimed: 'bool',
   },
-  ResultProposed: {
-    match_id: 'u64',
-    outcome: 'Outcome',
-    oracle: '[u8;32]',
-  },
-  ResultFinalized: {
-    match_id: 'u64',
-    outcome: 'Outcome',
-  },
-  WinnerPaid: {
-    match_id: 'u64',
-    winner: '[u8;32]',
-    amount: 'u128',
-  },
-  FinalPrizeSent: {
-    amount: 'u128',
-    recipient: '[u8;32]',
-  },
-  FeeWithdrawn: {
-    amount: 'u128',
-    recipient: '[u8;32]',
-  },
-  MatchRegistered: '(u64, String, String, String, u64)',
   PhaseRegistered: 'String',
-  BolaoEvent: {
+  MatchRegistered: '(u64, String, String, String, u64)',
+  OracleAuthorized: '([u8;32], bool)',
+  BetAccepted: '([u8;32], u64, Score, Option<PenaltyWinner>, u128)',
+  ResultProposed: '(u64, Score, Option<PenaltyWinner>, [u8;32])',
+  ResultFinalized: '(u64, Score, Option<PenaltyWinner>)',
+  SettlementPrepared: '(u64, u128)',
+  PointsAwarded: '([u8;32], u64, u32)',
+  MatchRewardClaimed: '(u64, [u8;32], u128)',
+  MatchDustSwept: '(u64, u128)',
+  PodiumPickSubmitted: '([u8;32], String, String, String)',
+  PodiumFinalized: '(String, String, String)',
+  PodiumBonusAwarded: '([u8;32], u32)',
+  FinalPrizeSent: '(u128, [u8;32])',
+  ProtocolFeesWithdrawn: '(u128, [u8;32])',
+  SmartCupEvent: {
     _enum: {
       PhaseRegistered: 'PhaseRegistered',
       MatchRegistered: 'MatchRegistered',
+      OracleAuthorized: 'OracleAuthorized',
       BetAccepted: 'BetAccepted',
       ResultProposed: 'ResultProposed',
       ResultFinalized: 'ResultFinalized',
-      WinnerPaid: 'WinnerPaid',
+      SettlementPrepared: 'SettlementPrepared',
+      PointsAwarded: 'PointsAwarded',
+      MatchRewardClaimed: 'MatchRewardClaimed',
+      MatchDustSwept: 'MatchDustSwept',
+      PodiumPickSubmitted: 'PodiumPickSubmitted',
+      PodiumFinalized: 'PodiumFinalized',
+      PodiumBonusAwarded: 'PodiumBonusAwarded',
       FinalPrizeSent: 'FinalPrizeSent',
-      FeeWithdrawn: 'FeeWithdrawn',
+      ProtocolFeesWithdrawn: 'ProtocolFeesWithdrawn',
     },
   },
 };
-
-export type BolaoEvent =
-  | { PhaseRegistered: PhaseRegisteredEvent }
-  | { MatchRegistered: MatchRegisteredEvent }
-  | { BetAccepted: BetAcceptedEvent }
-  | { ResultProposed: ResultProposedEvent }
-  | { ResultFinalized: ResultFinalizedEvent }
-  | { WinnerPaid: WinnerPaidEvent }
-  | { FinalPrizeSent: FinalPrizeSentEvent }
-  | { FeeWithdrawn: FeeWithdrawnEvent };
-
-const withAt = (atBlock?: `0x${string}`) => (atBlock ? { at: atBlock } : {});
 
 export class Program {
   public readonly registry: TypeRegistry;
@@ -202,13 +232,13 @@ export class Program {
     return this._programId;
   }
 
-  newCtorFromCode(code: Uint8Array | Buffer, kyc_contract: ActorId, final_prize_distributor: ActorId): TransactionBuilder<null> {
+  newCtorFromCode(code: Uint8Array | Buffer, final_prize_distributor: ActorId): TransactionBuilder<null> {
     const builder = new TransactionBuilder<null>(
       this.api,
       this.registry,
       'upload_program',
-      ['New', kyc_contract, final_prize_distributor],
-      '(String, [u8;32], [u8;32])',
+      ['New', final_prize_distributor],
+      '(String, [u8;32])',
       'String',
       code,
     );
@@ -216,13 +246,13 @@ export class Program {
     return builder;
   }
 
-  newCtorFromCodeId(codeId: `0x${string}`, kyc_contract: ActorId, final_prize_distributor: ActorId): TransactionBuilder<null> {
+  newCtorFromCodeId(codeId: `0x${string}`, final_prize_distributor: ActorId): TransactionBuilder<null> {
     const builder = new TransactionBuilder<null>(
       this.api,
       this.registry,
       'create_program',
-      ['New', kyc_contract, final_prize_distributor],
-      '(String, [u8;32], [u8;32])',
+      ['New', final_prize_distributor],
+      '(String, [u8;32])',
       'String',
       codeId,
     );
@@ -234,50 +264,92 @@ export class Program {
 export class Service {
   constructor(private _program: Program) {}
 
-  public bet(match_id: number | string | bigint, selected: Outcome): TransactionBuilder<BolaoEvent> {
-    return new TransactionBuilder<BolaoEvent>(
+  public claimMatchReward(match_id: number | string | bigint): TransactionBuilder<SmartCupEvent> {
+    if (!this._program.programId) throw new Error('Program ID is not set');
+    return new TransactionBuilder<SmartCupEvent>(
       this._program.api,
       this._program.registry,
       'send_message',
-      ['Service', 'Bet', match_id, selected],
-      '(String, String, u64, Outcome)',
-      'BolaoEvent',
+      ['Service', 'ClaimMatchReward', match_id],
+      '(String, String, u64)',
+      'SmartCupEvent',
       this._program.programId,
     );
   }
 
-  public finalizeResult(match_id: number | string | bigint): TransactionBuilder<BolaoEvent> {
-    return new TransactionBuilder<BolaoEvent>(
+  public finalizePodium(
+    champion: string,
+    runner_up: string,
+    third_place: string,
+  ): TransactionBuilder<SmartCupEvent[]> {
+    if (!this._program.programId) throw new Error('Program ID is not set');
+    return new TransactionBuilder<SmartCupEvent[]>(
+      this._program.api,
+      this._program.registry,
+      'send_message',
+      ['Service', 'FinalizePodium', champion, runner_up, third_place],
+      '(String, String, String, String, String)',
+      'Vec<SmartCupEvent>',
+      this._program.programId,
+    );
+  }
+
+  public finalizeResult(match_id: number | string | bigint): TransactionBuilder<SmartCupEvent> {
+    if (!this._program.programId) throw new Error('Program ID is not set');
+    return new TransactionBuilder<SmartCupEvent>(
       this._program.api,
       this._program.registry,
       'send_message',
       ['Service', 'FinalizeResult', match_id],
       '(String, String, u64)',
-      'BolaoEvent',
+      'SmartCupEvent',
       this._program.programId,
     );
   }
 
-  public payoutWinners(match_id: number | string | bigint): TransactionBuilder<BolaoEvent[]> {
-    return new TransactionBuilder<BolaoEvent[]>(
+  public placeBet(
+    match_id: number | string | bigint,
+    predicted_score: Score,
+    predicted_penalty_winner: PenaltyWinner | null,
+  ): TransactionBuilder<SmartCupEvent> {
+    if (!this._program.programId) throw new Error('Program ID is not set');
+    return new TransactionBuilder<SmartCupEvent>(
       this._program.api,
       this._program.registry,
       'send_message',
-      ['Service', 'PayoutWinners', match_id],
+      ['Service', 'PlaceBet', match_id, predicted_score, predicted_penalty_winner],
+      '(String, String, u64, Score, Option<PenaltyWinner>)',
+      'SmartCupEvent',
+      this._program.programId,
+    );
+  }
+
+  public prepareMatchSettlement(match_id: number | string | bigint): TransactionBuilder<SmartCupEvent> {
+    if (!this._program.programId) throw new Error('Program ID is not set');
+    return new TransactionBuilder<SmartCupEvent>(
+      this._program.api,
+      this._program.registry,
+      'send_message',
+      ['Service', 'PrepareMatchSettlement', match_id],
       '(String, String, u64)',
-      'Vec<BolaoEvent>',
+      'SmartCupEvent',
       this._program.programId,
     );
   }
 
-  public proposeResult(match_id: number | string | bigint, outcome: Outcome): TransactionBuilder<BolaoEvent> {
-    return new TransactionBuilder<BolaoEvent>(
+  public proposeResult(
+    match_id: number | string | bigint,
+    final_score: Score,
+    penalty_winner: PenaltyWinner | null,
+  ): TransactionBuilder<SmartCupEvent> {
+    if (!this._program.programId) throw new Error('Program ID is not set');
+    return new TransactionBuilder<SmartCupEvent>(
       this._program.api,
       this._program.registry,
       'send_message',
-      ['Service', 'ProposeResult', match_id, outcome],
-      '(String, String, u64, Outcome)',
-      'BolaoEvent',
+      ['Service', 'ProposeResult', match_id, final_score, penalty_winner],
+      '(String, String, u64, Score, Option<PenaltyWinner>)',
+      'SmartCupEvent',
       this._program.programId,
     );
   }
@@ -287,14 +359,15 @@ export class Service {
     home: string,
     away: string,
     kick_off: number | string | bigint,
-  ): TransactionBuilder<BolaoEvent> {
-    return new TransactionBuilder<BolaoEvent>(
+  ): TransactionBuilder<SmartCupEvent> {
+    if (!this._program.programId) throw new Error('Program ID is not set');
+    return new TransactionBuilder<SmartCupEvent>(
       this._program.api,
       this._program.registry,
       'send_message',
       ['Service', 'RegisterMatch', phase, home, away, kick_off],
       '(String, String, String, String, String, u64)',
-      'BolaoEvent',
+      'SmartCupEvent',
       this._program.programId,
     );
   }
@@ -303,38 +376,85 @@ export class Service {
     phase_name: string,
     start_time: number | string | bigint,
     end_time: number | string | bigint,
-  ): TransactionBuilder<BolaoEvent> {
-    return new TransactionBuilder<BolaoEvent>(
+    points_weight: number,
+  ): TransactionBuilder<SmartCupEvent> {
+    if (!this._program.programId) throw new Error('Program ID is not set');
+    return new TransactionBuilder<SmartCupEvent>(
       this._program.api,
       this._program.registry,
       'send_message',
-      ['Service', 'RegisterPhase', phase_name, start_time, end_time],
-      '(String, String, String, u64, u64)',
-      'BolaoEvent',
+      ['Service', 'RegisterPhase', phase_name, start_time, end_time, points_weight],
+      '(String, String, String, u64, u64, u32)',
+      'SmartCupEvent',
       this._program.programId,
     );
   }
 
-  public sendFinalPrize(): TransactionBuilder<BolaoEvent> {
-    return new TransactionBuilder<BolaoEvent>(
+  public sendFinalPrize(): TransactionBuilder<SmartCupEvent> {
+    if (!this._program.programId) throw new Error('Program ID is not set');
+    return new TransactionBuilder<SmartCupEvent>(
       this._program.api,
       this._program.registry,
       'send_message',
       ['Service', 'SendFinalPrize'],
       '(String, String)',
-      'BolaoEvent',
+      'SmartCupEvent',
       this._program.programId,
     );
   }
 
-  public withdrawFees(): TransactionBuilder<BolaoEvent> {
-    return new TransactionBuilder<BolaoEvent>(
+  public setOracleAuthorized(oracle: ActorId, authorized: boolean): TransactionBuilder<SmartCupEvent> {
+    if (!this._program.programId) throw new Error('Program ID is not set');
+    return new TransactionBuilder<SmartCupEvent>(
       this._program.api,
       this._program.registry,
       'send_message',
-      ['Service', 'WithdrawFees'],
+      ['Service', 'SetOracleAuthorized', oracle, authorized],
+      '(String, String, [u8;32], bool)',
+      'SmartCupEvent',
+      this._program.programId,
+    );
+  }
+
+  public submitPodiumPick(
+    champion: string,
+    runner_up: string,
+    third_place: string,
+  ): TransactionBuilder<SmartCupEvent> {
+    if (!this._program.programId) throw new Error('Program ID is not set');
+    return new TransactionBuilder<SmartCupEvent>(
+      this._program.api,
+      this._program.registry,
+      'send_message',
+      ['Service', 'SubmitPodiumPick', champion, runner_up, third_place],
+      '(String, String, String, String, String)',
+      'SmartCupEvent',
+      this._program.programId,
+    );
+  }
+
+  public sweepMatchDustToFinalPrize(match_id: number | string | bigint): TransactionBuilder<SmartCupEvent> {
+    if (!this._program.programId) throw new Error('Program ID is not set');
+    return new TransactionBuilder<SmartCupEvent>(
+      this._program.api,
+      this._program.registry,
+      'send_message',
+      ['Service', 'SweepMatchDustToFinalPrize', match_id],
+      '(String, String, u64)',
+      'SmartCupEvent',
+      this._program.programId,
+    );
+  }
+
+  public withdrawProtocolFees(): TransactionBuilder<SmartCupEvent> {
+    if (!this._program.programId) throw new Error('Program ID is not set');
+    return new TransactionBuilder<SmartCupEvent>(
+      this._program.api,
+      this._program.registry,
+      'send_message',
+      ['Service', 'WithdrawProtocolFees'],
       '(String, String)',
-      'BolaoEvent',
+      'SmartCupEvent',
       this._program.programId,
     );
   }
@@ -355,7 +475,7 @@ export class Service {
       payload,
       value: value ?? 0,
       gasLimit: this._program.api.blockGasLimit.toBigInt(),
-      ...withAt(atBlock),
+      at: atBlock ?? undefined,
     });
 
     if (!reply.code.isSuccess) {
@@ -363,7 +483,7 @@ export class Service {
     }
 
     const result = this._program.registry.createType('(String, String, Vec<UserBetView>)', reply.payload);
-    return result[2].toJSON() as unknown as UserBetView[]; // ✅
+    return result[2].toJSON() as unknown as UserBetView[];
   }
 
   public async queryMatch(
@@ -371,7 +491,7 @@ export class Service {
     originAddress?: string,
     value?: number | string | bigint,
     atBlock?: `0x${string}`,
-  ): Promise<MatchInfo | null> {
+  ): Promise<Match | null> {
     const payload = this._program.registry
       .createType('(String, String, u64)', ['Service', 'QueryMatch', match_id])
       .toHex();
@@ -382,15 +502,15 @@ export class Service {
       payload,
       value: value ?? 0,
       gasLimit: this._program.api.blockGasLimit.toBigInt(),
-      ...withAt(atBlock),
+      at: atBlock ?? undefined,
     });
 
     if (!reply.code.isSuccess) {
       throw new Error(this._program.registry.createType('String', reply.payload).toString());
     }
 
-    const result = this._program.registry.createType('(String, String, Option<MatchInfo>)', reply.payload);
-    return result[2].toJSON() as unknown as MatchInfo | null; // ✅
+    const result = this._program.registry.createType('(String, String, Option<Match>)', reply.payload);
+    return result[2].toJSON() as unknown as Match | null;
   }
 
   public async queryMatchesByPhase(
@@ -398,7 +518,7 @@ export class Service {
     originAddress?: string,
     value?: number | string | bigint,
     atBlock?: `0x${string}`,
-  ): Promise<MatchInfo[]> {
+  ): Promise<Match[]> {
     const payload = this._program.registry
       .createType('(String, String, String)', ['Service', 'QueryMatchesByPhase', phase])
       .toHex();
@@ -409,25 +529,23 @@ export class Service {
       payload,
       value: value ?? 0,
       gasLimit: this._program.api.blockGasLimit.toBigInt(),
-      ...withAt(atBlock),
+      at: atBlock ?? undefined,
     });
 
     if (!reply.code.isSuccess) {
       throw new Error(this._program.registry.createType('String', reply.payload).toString());
     }
 
-    const result = this._program.registry.createType('(String, String, Vec<MatchInfo>)', reply.payload);
-    return result[2].toJSON() as unknown as MatchInfo[]; // ✅
+    const result = this._program.registry.createType('(String, String, Vec<Match>)', reply.payload);
+    return result[2].toJSON() as unknown as Match[];
   }
 
   public async queryState(
     originAddress?: string,
     value?: number | string | bigint,
     atBlock?: `0x${string}`,
-  ): Promise<IoBolaoState> {
-    const payload = this._program.registry
-      .createType('(String, String)', ['Service', 'QueryState'])
-      .toHex();
+  ): Promise<IoSmartCupState> {
+    const payload = this._program.registry.createType('(String, String)', ['Service', 'QueryState']).toHex();
 
     const reply = await this._program.api.message.calculateReply({
       destination: this._program.programId,
@@ -435,15 +553,15 @@ export class Service {
       payload,
       value: value ?? 0,
       gasLimit: this._program.api.blockGasLimit.toBigInt(),
-      ...withAt(atBlock),
+      at: atBlock ?? undefined,
     });
 
     if (!reply.code.isSuccess) {
       throw new Error(this._program.registry.createType('String', reply.payload).toString());
     }
 
-    const result = this._program.registry.createType('(String, String, IoBolaoState)', reply.payload);
-    return result[2].toJSON() as unknown as IoBolaoState; // ✅
+    const result = this._program.registry.createType('(String, String, IoSmartCupState)', reply.payload);
+    return result[2].toJSON() as unknown as IoSmartCupState;
   }
 
   public async queryUserPoints(
@@ -462,7 +580,7 @@ export class Service {
       payload,
       value: value ?? 0,
       gasLimit: this._program.api.blockGasLimit.toBigInt(),
-      ...withAt(atBlock),
+      at: atBlock ?? undefined,
     });
 
     if (!reply.code.isSuccess) {
@@ -473,34 +591,80 @@ export class Service {
     return result[2].toNumber();
   }
 
-  public subscribeToPhaseRegisteredEvent(
-    callback: (data: PhaseRegisteredEvent) => void | Promise<void>,
-  ): Promise<() => void> {
+  public async queryWalletClaimStatus(
+    wallet: ActorId,
+    originAddress?: string,
+    value?: number | string | bigint,
+    atBlock?: `0x${string}`,
+  ): Promise<WalletClaimStatus> {
+    const payload = this._program.registry
+      .createType('(String, String, [u8;32])', ['Service', 'QueryWalletClaimStatus', wallet])
+      .toHex();
+
+    const reply = await this._program.api.message.calculateReply({
+      destination: this._program.programId,
+      origin: originAddress ? decodeAddress(originAddress) : ZERO_ADDRESS,
+      payload,
+      value: value ?? 0,
+      gasLimit: this._program.api.blockGasLimit.toBigInt(),
+      at: atBlock ?? undefined,
+    });
+
+    if (!reply.code.isSuccess) {
+      throw new Error(this._program.registry.createType('String', reply.payload).toString());
+    }
+
+    const result = this._program.registry.createType('(String, String, WalletClaimStatus)', reply.payload);
+    return result[2].toJSON() as unknown as WalletClaimStatus;
+  }
+
+  public subscribeToPhaseRegisteredEvent(callback: (data: string) => void | Promise<void>): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
-
       const payload = message.payload.toHex();
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'PhaseRegistered') {
         void Promise.resolve(
-          callback(
-            this._program.registry.createType('(String, String, PhaseRegistered)', message.payload)[2].toJSON() as unknown as PhaseRegisteredEvent
-          ),
+          callback(this._program.registry.createType('(String, String, PhaseRegistered)', message.payload)[2].toString()),
         ).catch(console.error);
       }
     });
   }
 
   public subscribeToMatchRegisteredEvent(
-    callback: (data: MatchRegisteredEvent) => void | Promise<void>,
+    callback: (data: [number | string | bigint, string, string, string, number | string | bigint]) => void | Promise<void>,
   ): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
-
       const payload = message.payload.toHex();
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'MatchRegistered') {
         void Promise.resolve(
           callback(
-            this._program.registry.createType('(String, String, MatchRegistered)', message.payload)[2].toJSON() as unknown as MatchRegisteredEvent
+            this._program.registry.createType('(String, String, MatchRegistered)', message.payload)[2].toJSON() as unknown as [
+              number | string | bigint,
+              string,
+              string,
+              string,
+              number | string | bigint,
+            ],
+          ),
+        ).catch(console.error);
+      }
+    });
+  }
+
+  public subscribeToOracleAuthorizedEvent(
+    callback: (data: [ActorId, boolean]) => void | Promise<void>,
+  ): Promise<() => void> {
+    return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
+      if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
+      const payload = message.payload.toHex();
+      if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'OracleAuthorized') {
+        void Promise.resolve(
+          callback(
+            this._program.registry.createType('(String, String, OracleAuthorized)', message.payload)[2].toJSON() as unknown as [
+              ActorId,
+              boolean,
+            ],
           ),
         ).catch(console.error);
       }
@@ -508,16 +672,23 @@ export class Service {
   }
 
   public subscribeToBetAcceptedEvent(
-    callback: (data: BetAcceptedEvent) => void | Promise<void>,
+    callback: (
+      data: [ActorId, number | string | bigint, Score, PenaltyWinner | null, number | string | bigint],
+    ) => void | Promise<void>,
   ): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
-
       const payload = message.payload.toHex();
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'BetAccepted') {
         void Promise.resolve(
           callback(
-            this._program.registry.createType('(String, String, BetAccepted)', message.payload)[2].toJSON() as unknown as BetAcceptedEvent
+            this._program.registry.createType('(String, String, BetAccepted)', message.payload)[2].toJSON() as unknown as [
+              ActorId,
+              number | string | bigint,
+              Score,
+              PenaltyWinner | null,
+              number | string | bigint,
+            ],
           ),
         ).catch(console.error);
       }
@@ -525,16 +696,20 @@ export class Service {
   }
 
   public subscribeToResultProposedEvent(
-    callback: (data: ResultProposedEvent) => void | Promise<void>,
+    callback: (data: [number | string | bigint, Score, PenaltyWinner | null, ActorId]) => void | Promise<void>,
   ): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
-
       const payload = message.payload.toHex();
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'ResultProposed') {
         void Promise.resolve(
           callback(
-            this._program.registry.createType('(String, String, ResultProposed)', message.payload)[2].toJSON() as unknown as ResultProposedEvent
+            this._program.registry.createType('(String, String, ResultProposed)', message.payload)[2].toJSON() as unknown as [
+              number | string | bigint,
+              Score,
+              PenaltyWinner | null,
+              ActorId,
+            ],
           ),
         ).catch(console.error);
       }
@@ -542,33 +717,157 @@ export class Service {
   }
 
   public subscribeToResultFinalizedEvent(
-    callback: (data: ResultFinalizedEvent) => void | Promise<void>,
+    callback: (data: [number | string | bigint, Score, PenaltyWinner | null]) => void | Promise<void>,
   ): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
-
       const payload = message.payload.toHex();
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'ResultFinalized') {
         void Promise.resolve(
           callback(
-            this._program.registry.createType('(String, String, ResultFinalized)', message.payload)[2].toJSON() as unknown as ResultFinalizedEvent
+            this._program.registry.createType('(String, String, ResultFinalized)', message.payload)[2].toJSON() as unknown as [
+              number | string | bigint,
+              Score,
+              PenaltyWinner | null,
+            ],
           ),
         ).catch(console.error);
       }
     });
   }
 
-  public subscribeToWinnerPaidEvent(
-    callback: (data: WinnerPaidEvent) => void | Promise<void>,
+  public subscribeToSettlementPreparedEvent(
+    callback: (data: [number | string | bigint, number | string | bigint]) => void | Promise<void>,
   ): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
-
       const payload = message.payload.toHex();
-      if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'WinnerPaid') {
+      if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'SettlementPrepared') {
         void Promise.resolve(
           callback(
-            this._program.registry.createType('(String, String, WinnerPaid)', message.payload)[2].toJSON() as unknown as WinnerPaidEvent
+            this._program.registry.createType('(String, String, SettlementPrepared)', message.payload)[2].toJSON() as unknown as [
+              number | string | bigint,
+              number | string | bigint,
+            ],
+          ),
+        ).catch(console.error);
+      }
+    });
+  }
+
+  public subscribeToPointsAwardedEvent(
+    callback: (data: [ActorId, number | string | bigint, number]) => void | Promise<void>,
+  ): Promise<() => void> {
+    return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
+      if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
+      const payload = message.payload.toHex();
+      if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'PointsAwarded') {
+        void Promise.resolve(
+          callback(
+            this._program.registry.createType('(String, String, PointsAwarded)', message.payload)[2].toJSON() as unknown as [
+              ActorId,
+              number | string | bigint,
+              number,
+            ],
+          ),
+        ).catch(console.error);
+      }
+    });
+  }
+
+  public subscribeToMatchRewardClaimedEvent(
+    callback: (data: [number | string | bigint, ActorId, number | string | bigint]) => void | Promise<void>,
+  ): Promise<() => void> {
+    return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
+      if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
+      const payload = message.payload.toHex();
+      if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'MatchRewardClaimed') {
+        void Promise.resolve(
+          callback(
+            this._program.registry.createType('(String, String, MatchRewardClaimed)', message.payload)[2].toJSON() as unknown as [
+              number | string | bigint,
+              ActorId,
+              number | string | bigint,
+            ],
+          ),
+        ).catch(console.error);
+      }
+    });
+  }
+
+  public subscribeToMatchDustSweptEvent(
+    callback: (data: [number | string | bigint, number | string | bigint]) => void | Promise<void>,
+  ): Promise<() => void> {
+    return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
+      if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
+      const payload = message.payload.toHex();
+      if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'MatchDustSwept') {
+        void Promise.resolve(
+          callback(
+            this._program.registry.createType('(String, String, MatchDustSwept)', message.payload)[2].toJSON() as unknown as [
+              number | string | bigint,
+              number | string | bigint,
+            ],
+          ),
+        ).catch(console.error);
+      }
+    });
+  }
+
+  public subscribeToPodiumPickSubmittedEvent(
+    callback: (data: [ActorId, string, string, string]) => void | Promise<void>,
+  ): Promise<() => void> {
+    return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
+      if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
+      const payload = message.payload.toHex();
+      if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'PodiumPickSubmitted') {
+        void Promise.resolve(
+          callback(
+            this._program.registry.createType('(String, String, PodiumPickSubmitted)', message.payload)[2].toJSON() as unknown as [
+              ActorId,
+              string,
+              string,
+              string,
+            ],
+          ),
+        ).catch(console.error);
+      }
+    });
+  }
+
+  public subscribeToPodiumFinalizedEvent(
+    callback: (data: [string, string, string]) => void | Promise<void>,
+  ): Promise<() => void> {
+    return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
+      if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
+      const payload = message.payload.toHex();
+      if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'PodiumFinalized') {
+        void Promise.resolve(
+          callback(
+            this._program.registry.createType('(String, String, PodiumFinalized)', message.payload)[2].toJSON() as unknown as [
+              string,
+              string,
+              string,
+            ],
+          ),
+        ).catch(console.error);
+      }
+    });
+  }
+
+  public subscribeToPodiumBonusAwardedEvent(
+    callback: (data: [ActorId, number]) => void | Promise<void>,
+  ): Promise<() => void> {
+    return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
+      if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
+      const payload = message.payload.toHex();
+      if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'PodiumBonusAwarded') {
+        void Promise.resolve(
+          callback(
+            this._program.registry.createType('(String, String, PodiumBonusAwarded)', message.payload)[2].toJSON() as unknown as [
+              ActorId,
+              number,
+            ],
           ),
         ).catch(console.error);
       }
@@ -576,33 +875,37 @@ export class Service {
   }
 
   public subscribeToFinalPrizeSentEvent(
-    callback: (data: FinalPrizeSentEvent) => void | Promise<void>,
+    callback: (data: [number | string | bigint, ActorId]) => void | Promise<void>,
   ): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
-
       const payload = message.payload.toHex();
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'FinalPrizeSent') {
         void Promise.resolve(
           callback(
-            this._program.registry.createType('(String, String, FinalPrizeSent)', message.payload)[2].toJSON() as unknown as FinalPrizeSentEvent
+            this._program.registry.createType('(String, String, FinalPrizeSent)', message.payload)[2].toJSON() as unknown as [
+              number | string | bigint,
+              ActorId,
+            ],
           ),
         ).catch(console.error);
       }
     });
   }
 
-  public subscribeToFeeWithdrawnEvent(
-    callback: (data: FeeWithdrawnEvent) => void | Promise<void>,
+  public subscribeToProtocolFeesWithdrawnEvent(
+    callback: (data: [number | string | bigint, ActorId]) => void | Promise<void>,
   ): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
-
       const payload = message.payload.toHex();
-      if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'FeeWithdrawn') {
+      if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'ProtocolFeesWithdrawn') {
         void Promise.resolve(
           callback(
-            this._program.registry.createType('(String, String, FeeWithdrawn)', message.payload)[2].toJSON() as unknown as FeeWithdrawnEvent
+            this._program.registry.createType('(String, String, ProtocolFeesWithdrawn)', message.payload)[2].toJSON() as unknown as [
+              number | string | bigint,
+              ActorId,
+            ],
           ),
         ).catch(console.error);
       }

@@ -1,5 +1,5 @@
 import { ReactNode } from 'react';
-import field from '../../../public/images/field.png';
+import field from '../../../public/images/dashboard-prediction.jpeg';
 import './styles.css';
 import { Header } from '@/components';
 import { HeaderBar } from './HeaderBar';
