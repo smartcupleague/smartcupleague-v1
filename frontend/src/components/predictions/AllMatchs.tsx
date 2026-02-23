@@ -7,15 +7,11 @@ import { useNavigate } from 'react-router-dom';
 import { TransactionBuilder } from 'sails-js';
 import { useToast } from '@/hooks/useToast';
 import { HexString } from '@gear-js/api';
+import { TEAM_FLAGS } from '@/utils/teams';
 
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as string;
 
-const TEAM_FLAGS: Record<string, string> = {
-  MEXICO: '/flags/mexico.jpg',
-  'SOUTH AFRICA': '/flags/South_Africa.png',
-  ARGENTINA: '/flags/argentina.jpg',
-  JAPAN: '/flags/japan.jpg',
-};
+
 
 function normalizeTeamKey(team: string) {
   return (team || '').trim().toUpperCase().replace(/\s+/g, ' ');

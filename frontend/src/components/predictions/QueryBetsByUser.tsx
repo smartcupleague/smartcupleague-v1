@@ -5,12 +5,12 @@ import { web3Enable, web3FromSource } from '@polkadot/extension-dapp';
 import { Program, Service } from '@/hocs/lib';
 import { Wallet } from '@gear-js/wallet-connect';
 import { TransactionBuilder } from 'sails-js';
+import { TEAM_FLAGS } from '@/utils/teams';
 
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM;
 
 type Score = { home: number; away: number };
 type Outcome = 'Home' | 'Draw' | 'Away';
-
 
 type PenaltyWinner = 'Home' | 'Away' | undefined;
 
@@ -20,7 +20,6 @@ type PhaseConfig = {
   end_time: string;
   points_weight: number;
 };
-
 
 type ContractUserBetView = {
   match_id: number;
@@ -44,11 +43,6 @@ type MatchInfo = {
   total_winner_stake?: string;
   settlement_prepared?: boolean;
   dust_swept?: boolean;
-};
-
-const TEAM_FLAGS: Record<string, string> = {
-  MEXICO: '/flags/mexico.jpg',
-  'SOUTH AFRICA': '/flags/South_Africa.png',
 };
 
 function normalizeTeamKey(team: string) {
@@ -695,8 +689,6 @@ const ErrorState = styled.div`
   padding: 0.6rem 0.2rem;
 `;
 
-
-
 function kickOffToMs(kickOff: string): number {
   const n = Number(kickOff);
   if (!Number.isFinite(n) || n <= 0) return 0;
@@ -813,7 +805,17 @@ function computeDeterministicShareBn(
   return (stakeInMatchPool * matchPrizePool) / totalWinnerStake;
 }
 
-function isEligibleExact(
+function outcomeOf(score: Score): -1 | 0 | 1 {
+  if (score.home > score.away) return 1;
+  if (score.home < score.away) return -1;
+  return 0;
+}
+
+function isExactScore(betScore?: Score, finalScore?: Score) {
+  return !!betScore && !!finalScore && betScore.home === finalScore.home && betScore.away === finalScore.away;
+}
+
+function eligibleForPayout(
   betScore: Score | undefined,
   betPenalty: PenaltyWinner,
   finalScore: Score | undefined,
@@ -821,19 +823,31 @@ function isEligibleExact(
   phaseWeight: number,
 ) {
   if (!betScore || !finalScore) return false;
-  const exact = betScore.home === finalScore.home && betScore.away === finalScore.away;
-  if (!exact) return false;
 
   const knockout = isKnockout(phaseWeight);
   const drawFinal = finalScore.home === finalScore.away;
 
-  if (knockout && drawFinal) {
+  const exact = isExactScore(betScore, finalScore);
+  if (exact) {
+    if (knockout && drawFinal) {
+      return !!betPenalty && !!finalPenalty && betPenalty === finalPenalty;
+    }
+    return true;
+  }
+
+  const betOutcome = outcomeOf(betScore);
+  const finalOutcome = outcomeOf(finalScore);
+
+  if (!knockout) {
+    return betOutcome === finalOutcome;
+  }
+
+  if (drawFinal) {
     return !!betPenalty && !!finalPenalty && betPenalty === finalPenalty;
   }
-  return true;
+
+  return betOutcome === finalOutcome;
 }
-
-
 
 export const QueryBetsByUserComponent: React.FC = () => {
   const { account } = useAccount();
@@ -1102,13 +1116,14 @@ export const QueryBetsByUserComponent: React.FC = () => {
                 const { score: finalScore, penaltyWinner: finalPenalty } = m ? getFinalizedResult(m.result) : {};
 
                 const eligible = matchFinal
-                  ? isEligibleExact(b.score, betPenalty, finalScore, finalPenalty, phaseWeight)
+                  ? eligibleForPayout(b.score, betPenalty, finalScore, finalPenalty, phaseWeight)
                   : false;
 
                 const realBn =
                   matchFinal && settlementPrepared && eligible
                     ? computeDeterministicShareBn(stakeBn, matchPoolBn, totalWinnerStakeBn)
                     : 0n;
+
                 const realHuman = Number(formatAmount(realBn, 12));
 
                 const potentialBefore = matchPoolBn > 0n ? matchPoolBn : 0n;
@@ -1116,10 +1131,15 @@ export const QueryBetsByUserComponent: React.FC = () => {
 
                 const displayValue =
                   settlementPrepared && matchFinal ? (eligible ? realHuman.toFixed(4) : '0.0000') : potentialText;
+
+                const exactHit = matchFinal ? isExactScore(b.score, finalScore) : false;
+
                 const displaySub =
                   settlementPrepared && matchFinal
                     ? eligible
-                      ? 'Real (claimable)'
+                      ? exactHit
+                        ? 'Real (claimable • exact)'
+                        : 'Real (claimable • outcome)'
                       : 'Not eligible'
                     : 'Potential (max pool)';
 
@@ -1138,7 +1158,7 @@ export const QueryBetsByUserComponent: React.FC = () => {
                     : !settlementPrepared
                       ? 'Settlement not prepared yet (admin must prepare settlement)'
                       : !eligible
-                        ? 'Not eligible (requires exact score + penalties rule if draw in knockout)'
+                        ? 'Not eligible (requires exact score OR correct outcome; in knockout draws: correct penalty winner)'
                         : isClaiming
                           ? 'Claiming...'
                           : 'Claim your winnings';
@@ -1181,7 +1201,7 @@ export const QueryBetsByUserComponent: React.FC = () => {
                             <MiniPill>
                               Eligibility:{' '}
                               <b style={{ color: eligible ? 'rgba(255,236,160,.95)' : 'rgba(255,180,180,.92)' }}>
-                                {eligible ? 'Eligible' : 'Not eligible'}
+                                {eligible ? (exactHit ? 'Eligible (exact)' : 'Eligible (outcome)') : 'Not eligible'}
                               </b>
                             </MiniPill>
                           ) : null}
@@ -1211,7 +1231,7 @@ export const QueryBetsByUserComponent: React.FC = () => {
                     <ScorePill>
                       <div className="label">YOUR PICK</div>
                       <div className="score">{pickText}</div>
-                      <div className="hint">Exact score</div>
+                      <div className="hint">Score / outcome</div>
                     </ScorePill>
 
                     <div className="colHide">
@@ -1231,13 +1251,7 @@ export const QueryBetsByUserComponent: React.FC = () => {
                         onClick={() => claim(Number(b.match_id))}>
                         <ClaimBtnInner>
                           {isClaiming ? <Spinner /> : <ClaimDot />}
-                          {isClaiming
-                            ? 'Claiming…'
-                            : canClaim
-                              ? `Claim ${formatAmount(realBn, 12)} VARA`
-                              : claimed
-                                ? 'Claimed'
-                                : 'Claim'}
+                          {isClaiming ? 'Claiming…' : canClaim ? `Claim` : claimed ? 'Claimed' : 'Claim'}
                         </ClaimBtnInner>
                       </ClaimBtn>
                     </ActionWrap>

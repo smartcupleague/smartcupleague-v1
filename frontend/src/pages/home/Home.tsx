@@ -8,6 +8,7 @@ import { u8aToHex } from '@polkadot/util';
 import { HexString } from '@gear-js/api';
 import { Program as CoreProgram, Service as CoreService } from '@/hocs/lib';
 import { Program as DaoProgram, Service as DaoService } from '@/hocs/dao';
+import { TEAM_FLAGS } from '@/utils/teams';
 
 const CORE_PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as string;
 const DAO_PROGRAM_ID = import.meta.env.VITE_DAOPROGRAM as string;
@@ -55,51 +56,12 @@ type DaoProposal = {
   executed: boolean;
 };
 
-/**
- * ✅ Mapa de banderas (agrega aquí todos los que uses)
- * Tip: usa rutas en /public/flags/...
- */
-const TEAM_FLAGS: Record<string, string> = {
-  // Canonical
-  MEXICO: '/flags/mexico.jpg',
-  ARGENTINA: '/flags/argentina.jpg',
-  ENGLAND: '/flags/england.jpg',
-  IRAN: '/flags/iran.jpg',
-  ECUADOR: '/flags/ecuador.jpg',
-  QATAR: '/flags/qatar.jpg',
-  'SAUDI ARABIA': '/flags/saudi_arabia.jpg',
-  'SOUTH AFRICA': '/flags/South_Africa.png',
-
-  // ✅ Aliases / Códigos / Variantes comunes
-  MEX: '/flags/mexico.jpg',
-  MEXICO_: '/flags/mexico.jpg', // por si llega raro
-
-  ARG: '/flags/argentina.jpg',
-  ENG: '/flags/england.jpg',
-  GBR: '/flags/england.jpg', // ojo: si quieres UK diferente, cambia aquí
-  IRN: '/flags/iran.jpg',
-  ECU: '/flags/ecuador.jpg',
-  QAT: '/flags/qatar.jpg',
-  KSA: '/flags/saudi_arabia.jpg',
-  'SAUDI_ARABIA': '/flags/saudi_arabia.jpg',
-  'SOUTH_AFRICA': '/flags/South_Africa.png',
-  RSA: '/flags/South_Africa.png',
-};
-
-/**
- * ✅ Normaliza entradas tipo:
- * "México" -> "MEXICO"
- * "Saudi_Arabia" -> "SAUDI ARABIA"
- * " south   africa " -> "SOUTH AFRICA"
- */
 function normalizeTeamKey(team: string) {
   const raw = (team || '').trim();
   if (!raw) return '';
 
-  // quita acentos
   const noDiacritics = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-  // _ y - a espacios, colapsa espacios
   const spaced = noDiacritics.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
 
   return spaced.toUpperCase();
@@ -109,11 +71,8 @@ function flagForTeam(team: string) {
   const key = normalizeTeamKey(team);
   if (!key) return '/flags/default.png';
 
-  // 1) match directo
   if (TEAM_FLAGS[key]) return TEAM_FLAGS[key];
 
-  // 2) si viene con cosas extra tipo "MEXICO (A)" o "MEXICO U-20"
-  // intentamos quedarnos con el primer “token” que parezca código/pais
   const firstToken = key.split(' ')[0];
   if (TEAM_FLAGS[firstToken]) return TEAM_FLAGS[firstToken];
 
@@ -722,8 +681,7 @@ export default function Home() {
                         <TeamFlag team={m.left} />
                         <span
                           className="team"
-                          style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                        >
+                          style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {m.left}
                         </span>
                       </span>
@@ -733,8 +691,7 @@ export default function Home() {
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                         <span
                           className="team"
-                          style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                        >
+                          style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {m.right}
                         </span>
                         <TeamFlag team={m.right} />
@@ -773,8 +730,7 @@ export default function Home() {
                         <TeamFlag team={m.left} />
                         <span
                           className="team"
-                          style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                        >
+                          style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {m.left}
                         </span>
                       </span>
@@ -784,8 +740,7 @@ export default function Home() {
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                         <span
                           className="team"
-                          style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                        >
+                          style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {m.right}
                         </span>
                         <TeamFlag team={m.right} />

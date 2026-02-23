@@ -7,6 +7,7 @@ import { TransactionBuilder } from 'sails-js';
 import { useToast } from '@/hooks/useToast';
 import './matchcard.css';
 import { HexString } from '@gear-js/api';
+import { TEAM_FLAGS } from '@/utils/teams';
 
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as string;
 
@@ -48,12 +49,7 @@ type BetCurrency = 'VARA' | 'wUSDC' | 'wUSDT';
 const VARA_DECIMALS = 12n;
 const VARA_PLANCK = 10n ** VARA_DECIMALS;
 
-const TEAM_FLAGS: Record<string, string> = {
-  MEXICO: '/flags/mexico.jpg',
-  'SOUTH AFRICA': '/flags/South_Africa.png',
-  ARGENTINA: '/flags/flag_argentina.jpg',
-  JAPAN: '/flags/flag_japan.jpg',
-};
+
 
 function normalizeTeamKey(team: string) {
   return (team || '').trim().toUpperCase().replace(/\s+/g, ' ');
