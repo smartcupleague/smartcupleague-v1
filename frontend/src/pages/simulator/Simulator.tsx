@@ -8,7 +8,7 @@ import { RegisterMatchComponent } from './RegisterMatch';
 import { ProposeResultComponent } from './ProposeResult';
 import { FinalizeResultContainer } from './FinalizeResult';
 import { PrepareSettlementComponent } from './PrepareSettlement';
-import { Wallet } from '@gear-js/wallet-connect';
+import { StyledWallet } from '@/components/wallet/Wallet';
 
 type AdminTab = 'registerPhase' | 'registerMatch' | 'propose' | 'finalize' | 'settlement';
 
@@ -289,11 +289,9 @@ export function Simulator() {
             </TabsBar>
 
             <WalletChip>
-              <span className="badge">🛡️</span>
-              <div>
-                <Wallet />
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <StyledWallet showHeader={false} />
               </div>
-              <span className="mono">{walletLabel}</span>
             </WalletChip>
           </HeadRight>
         </PanelHead>
