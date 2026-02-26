@@ -14,7 +14,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   {
     key: 'home',
-    label: 'My progress',
+    label: 'My Progres',
     path: '/home',
     icon: <span className="scb-icon">🏆</span>,
   },

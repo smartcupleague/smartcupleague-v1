@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import './dashboard.css';
-import { Wallet } from '@gear-js/wallet-connect';
 import { useAccount, useApi, useAlert } from '@gear-js/react-hooks';
 import { web3Enable } from '@polkadot/extension-dapp';
 import { decodeAddress } from '@polkadot/util-crypto';
@@ -455,153 +454,9 @@ export default function Home() {
         </div>
       </header>
 
-      <section className="h-ai" aria-label="AI suggestion">
-        <div className="h-ai__grid">
-          <section className="h-card h-card--ai">
-            <div className="h-card__head">
-              <h3>Your SmartCup Status</h3>
-            </div>
-
-            <div className="h-status">
-              <div className="h-status__top">
-                <div className="h-status__tournament">{tournamentName}</div>
-
-                <div className="h-rank">
-                  <div className="h-rank__main">
-                    <span className="h-rank__no">{myRankInfo.rank ? `#${myRankInfo.rank}` : '—'}</span>
-                    <span className="h-rank__all">/ {coreState ? myRankInfo.totalPlayers : '—'}</span>
-                  </div>
-                  <div className="h-rank__hint">Rank from CORE</div>
-                </div>
-              </div>
-
-              <div className="h-status__mid">
-                <div className="h-badge">
-                  <span className="h-badge__icon">🏅</span>
-                </div>
-
-                <div className="h-points">
-                  <div className="h-points__value">{myRankInfo.points}</div>
-                  <div className="h-points__label">match points</div>
-                </div>
-
-                <div className="h-wallet">
-                  <div className="h-wallet__label">Wallet</div>
-                  <div className="h-wallet__value mono">{myWalletHex ? shortHex(myWalletHex) : '—'}</div>
-                </div>
-              </div>
-
-              <div className="h-kv">
-                <div className="h-kv__row">
-                  <span className="muted">Last match points accumulated</span>
-                  <span className="h-kv__value">{lastMatchPointsLine}</span>
-                </div>
-
-                <div className="h-kv__row">
-                  <span className="muted">Matches predicted</span>
-                  <span className="h-kv__value">
-                    {predictedProgress.predicted} / {predictedProgress.total} • {predictedProgress.pct}%
-                  </span>
-                </div>
-
-                <div className="h-kv__row">
-                  <span className="muted">Participation in Tournament Bonus</span>
-                  <span className="h-kv__value">
-                    {bonus.qualifies ? 'Yes' : 'No'} • deadline {bonus.countdown}
-                  </span>
-                </div>
-
-                <div className="h-kv__row">
-                  <span className="muted">Distance to next rank</span>
-                  <span className="h-kv__value">
-                    {distanceToNext
-                      ? `You are ${distanceToNext.gap} points to reach #${distanceToNext.targetRank} • ${shortHex(
-                          distanceToNext.targetAddr,
-                        )}`
-                      : '—'}
-                  </span>
-                </div>
-              </div>
-
-              <div className="h-card__foot">
-                <button className="h-btn h-btn--soft" type="button">
-                  View full Leaderboard →
-                </button>
-              </div>
-            </div>
-          </section>
-
-          <section className="h-card h-card--ai">
-            <div className="h-card__head">
-              <h3>Your Prediction Performance</h3>
-            </div>
-
-            <div className="h-perf">
-              <div className="h-perf__kpis">
-                <div className="h-kpi">
-                  <div className="h-kpi__label">Total Predicted ({usdcLabel})</div>
-                  <div className="h-kpi__value">—</div>
-                </div>
-                <div className="h-kpi">
-                  <div className="h-kpi__label">Total Earned ({usdcLabel})</div>
-                  <div className="h-kpi__value">—</div>
-                </div>
-                <div className="h-kpi h-kpi--good">
-                  <div className="h-kpi__label">Net Performance %</div>
-                  <div className="h-kpi__value">—</div>
-                </div>
-              </div>
-
-              <div className="h-next">
-                <div className="h-next__label">Next match to predict</div>
-
-                {nextMatch ? (
-                  <div className="h-next__card">
-                    <div className="h-next__teams">
-                      <span className="h-team">
-                        <TeamFlag team={nextMatch.home} />
-                        <span className="h-team__name">{nextMatch.home}</span>
-                      </span>
-                      <span className="h-vs">vs</span>
-                      <span className="h-team">
-                        <TeamFlag team={nextMatch.away} />
-                        <span className="h-team__name">{nextMatch.away}</span>
-                      </span>
-                    </div>
-
-                    <div className="h-next__meta">
-                      <span className="muted">
-                        {formatDate(Number(nextMatch.kick_off))} • {formatTime(Number(nextMatch.kick_off))}
-                      </span>
-                      <span className="h-dot">•</span>
-                      <span className="muted">Countdown: {toHMS(Number(nextMatch.kick_off))}</span>
-                    </div>
-
-                    <div className="h-next__meta">
-                      <span className="muted">Phase weight:</span>
-                      <span className="h-pill">{phaseWeight}</span>
-                      <span className="h-dot">•</span>
-                      <span className="muted">{(nextMatch.phase || '').replace(/_/g, ' ')}</span>
-                    </div>
-
-                    <button className="h-btn h-btn--primary" type="button">
-                      Predict Now
-                    </button>
-                  </div>
-                ) : (
-                  <div className="h-next__card">
-                    <div className="muted">No upcoming match found</div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </section>
-        </div>
-      </section>
-
       {/* MAIN GRID */}
       <main className="h-grid">
-        {/* Your SmartCup Status (requerido) */}
+        {/* Your SmartCup Status */}
         <section className="h-card h-card--status">
           <div className="h-card__head">
             <h3>Your SmartCup Status</h3>
@@ -676,7 +531,7 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Your Betting Performance (requerido) */}
+        {/* Your Betting Performance */}
         <section className="h-card h-card--perf">
           <div className="h-card__head">
             <h3>Your Betting Performance</h3>
@@ -720,7 +575,7 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Final Prize Pool (requerido) */}
+        {/* Final Prize Pool */}
         <section className="h-card h-card--prize">
           <div className="h-card__head">
             <h3>Final Prize Pool</h3>
@@ -782,7 +637,7 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Extras (no rompen doc): leaderboard preview + protocol activity */}
+        {/* Extras */}
         <section className="h-card h-card--leader">
           <div className="h-card__head">
             <h3>{tournamentName} Leaderboard</h3>
@@ -826,12 +681,9 @@ export default function Home() {
                 <span className="h-alist__ico">🗓️</span>
                 <div>
                   <div className="h-alist__title">
-                    Next kickoff{' '}
-                    <span className="muted">• {nextMatch ? timeFromNow(Number(nextMatch.kick_off)) : '—'}</span>
+                    Next kickoff <span className="muted">• {nextMatch ? timeFromNow(Number(nextMatch.kick_off)) : '—'}</span>
                   </div>
-                  <div className="h-alist__sub muted">
-                    {nextMatch ? formatDateTime(Number(nextMatch.kick_off)) : '—'}
-                  </div>
+                  <div className="h-alist__sub muted">{nextMatch ? formatDateTime(Number(nextMatch.kick_off)) : '—'}</div>
                 </div>
               </div>
 
@@ -842,9 +694,7 @@ export default function Home() {
                     Governance <span className="muted">• {governance.activeCount} active</span>
                   </div>
                   <div className="h-alist__sub muted">
-                    {governance.last
-                      ? `Latest proposal #${governance.last.id} • ${governance.last.description}`
-                      : 'No proposals yet'}
+                    {governance.last ? `Latest proposal #${governance.last.id} • ${governance.last.description}` : 'No proposals yet'}
                   </div>
                 </div>
               </div>
@@ -853,8 +703,7 @@ export default function Home() {
                 <span className="h-alist__ico">💧</span>
                 <div>
                   <div className="h-alist__title">
-                    Total Pool{' '}
-                    <span className="muted">• {coreState ? `${poolsInfo.allPoolsText} ${usdcLabel}` : '—'}</span>
+                    Total Pool <span className="muted">• {coreState ? `${poolsInfo.allPoolsText} ${usdcLabel}` : '—'}</span>
                   </div>
                   <div className="h-alist__sub muted">Sum of pools across all matches.</div>
                 </div>
@@ -884,8 +733,7 @@ export default function Home() {
                     </span>
                   </div>
                   <div className="h-match__meta muted">
-                    {(m.phase || '').replace(/_/g, ' ')} <span className="h-dot">•</span>{' '}
-                    {formatDateTime(Number(m.kick_off))}
+                    {(m.phase || '').replace(/_/g, ' ')} <span className="h-dot">•</span> {formatDateTime(Number(m.kick_off))}
                   </div>
                 </div>
 
@@ -902,11 +750,7 @@ export default function Home() {
 
       <div className="muted tiny" style={{ padding: '10px 0', textAlign: 'center' }}>
         {!CORE_PROGRAM_ID ? 'Missing env: VITE_BOLAOCOREPROGRAM' : null}
-        {!DAO_PROGRAM_ID
-          ? CORE_PROGRAM_ID
-            ? 'Missing env: VITE_DAOPROGRAM'
-            : ' • Missing env: VITE_DAOPROGRAM'
-          : null}
+        {!DAO_PROGRAM_ID ? (CORE_PROGRAM_ID ? 'Missing env: VITE_DAOPROGRAM' : ' • Missing env: VITE_DAOPROGRAM') : null}
       </div>
     </div>
   );
