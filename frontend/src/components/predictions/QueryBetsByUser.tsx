@@ -1,17 +1,16 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import styled, { keyframes } from 'styled-components';
+import './my-predictions.css';
 import { useAccount, useAlert, useApi } from '@gear-js/react-hooks';
 import { web3Enable, web3FromSource } from '@polkadot/extension-dapp';
 import { Program, Service } from '@/hocs/lib';
 import { Wallet } from '@gear-js/wallet-connect';
 import { TransactionBuilder } from 'sails-js';
 import { TEAM_FLAGS } from '@/utils/teams';
+import { StyledWallet } from '../wallet/Wallet';
 
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM;
 
 type Score = { home: number; away: number };
-type Outcome = 'Home' | 'Draw' | 'Away';
-
 type PenaltyWinner = 'Home' | 'Away' | undefined;
 
 type PhaseConfig = {
@@ -53,641 +52,6 @@ function flagForTeam(team: string) {
   const key = normalizeTeamKey(team);
   return TEAM_FLAGS[key] || '/flags/default.png';
 }
-
-const spin = keyframes`
-  to { transform: rotate(360deg); }
-`;
-
-const shimmer = keyframes`
-  0% { transform: translateX(-120%) skewX(-20deg); opacity: .0; }
-  25% { opacity: .85; }
-  60% { opacity: .55; }
-  100% { transform: translateX(120%) skewX(-20deg); opacity: .0; }
-`;
-
-const pulse = keyframes`
-  0%, 100% { transform: translateY(0); filter: brightness(1); }
-  50% { transform: translateY(-1px); filter: brightness(1.05); }
-`;
-
-const Shell = styled.div`
-  position: relative;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-`;
-
-const TopHeader = styled.header`
-  width: 100%;
-  border-radius: calc(var(--r) + 8px);
-  border: 1px solid var(--stroke2);
-  background:
-    radial-gradient(900px 260px at 18% 0%, rgba(255, 0, 110, 0.14), transparent 60%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
-  backdrop-filter: var(--blur);
-  box-shadow: var(--shadow);
-  padding: 14px 14px 12px;
-`;
-
-const HeaderRow = styled.div`
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-
-  @media (max-width: 980px) {
-    flex-direction: column;
-  }
-`;
-
-const TitleBlock = styled.div`
-  min-width: 0;
-`;
-
-const Title = styled.h1`
-  margin: 0;
-  font-size: 22px;
-  font-weight: 900;
-  letter-spacing: 0.2px;
-  color: rgba(255, 255, 255, 0.94);
-`;
-
-const Subtitle = styled.div`
-  margin-top: 6px;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.7);
-`;
-
-const HeaderRight = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 0 0 auto;
-
-  @media (max-width: 980px) {
-    width: 100%;
-    justify-content: space-between;
-    flex-wrap: wrap;
-  }
-`;
-
-const SearchPill = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  min-width: 360px;
-
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(0, 0, 0, 0.12);
-  backdrop-filter: var(--blur);
-
-  @media (max-width: 980px) {
-    min-width: 0;
-    width: 100%;
-  }
-`;
-
-const SearchIcon = styled.span`
-  opacity: 0.8;
-`;
-
-const SearchInput = styled.input`
-  width: 100%;
-  background: transparent;
-  border: none;
-  outline: none;
-  color: rgba(255, 255, 255, 0.92);
-  font-size: 13px;
-
-  &::placeholder {
-    color: rgba(255, 255, 255, 0.55);
-  }
-`;
-
-const Chips = styled.div`
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: wrap;
-`;
-
-const Chip = styled.div`
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(0, 0, 0, 0.12);
-  color: rgba(255, 255, 255, 0.88);
-`;
-
-const ChipBadge = styled.span`
-  width: 26px;
-  height: 26px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  background:
-    radial-gradient(circle at 30% 20%, rgba(255, 79, 156, 0.4), transparent 60%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05));
-  border: 1px solid rgba(255, 255, 255, 0.12);
-`;
-
-const TabsRow = styled.div`
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-top: 12px;
-`;
-
-const Tab = styled.button<{ $active?: boolean }>`
-  border: 1px solid ${({ $active }) => ($active ? 'rgba(255,0,110,.45)' : 'rgba(255,255,255,.12)')};
-  background: ${({ $active }) =>
-    $active
-      ? 'radial-gradient(520px 140px at 20% 20%, rgba(255,0,110,.20), transparent 62%), rgba(0,0,0,.10)'
-      : 'rgba(0,0,0,.10)'};
-  color: rgba(255, 255, 255, 0.88);
-  padding: 10px 12px;
-  border-radius: 14px;
-  cursor: pointer;
-  font-weight: 800;
-  font-size: 13px;
-  transition:
-    transform 0.15s ease,
-    background 0.15s ease,
-    border-color 0.15s ease;
-
-  &:hover {
-    transform: translateY(-1px);
-    border-color: rgba(255, 255, 255, 0.18);
-    background: rgba(255, 255, 255, 0.08);
-  }
-`;
-
-const SectionTitle = styled.div`
-  margin-top: 6px;
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 0 2px;
-
-  .main {
-    font-weight: 950;
-    font-size: 18px;
-    color: rgba(255, 255, 255, 0.92);
-  }
-  .sub {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.68);
-  }
-`;
-
-const CupCard = styled.section`
-  width: 100%;
-  border-radius: calc(var(--r) + 8px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: radial-gradient(900px 260px at 18% 0%, rgba(255, 0, 110, 0.12), transparent 60%), rgba(0, 0, 0, 0.1);
-  backdrop-filter: var(--blur);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.35);
-  overflow: hidden;
-`;
-
-const CupHead = styled.div`
-  padding: 12px 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-`;
-
-const CupLeft = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-`;
-
-const CupIcon = styled.div`
-  width: 30px;
-  height: 30px;
-  border-radius: 12px;
-  display: grid;
-  place-items: center;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-`;
-
-const CupTitle = styled.div`
-  min-width: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-
-  .t {
-    font-weight: 950;
-    color: rgba(255, 255, 255, 0.92);
-  }
-  .s {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.68);
-  }
-`;
-
-const CupTools = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 10px;
-`;
-
-const ToolBtn = styled.button`
-  width: 34px;
-  height: 34px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(0, 0, 0, 0.1);
-  color: rgba(255, 255, 255, 0.84);
-  cursor: pointer;
-  transition:
-    transform 0.15s ease,
-    background 0.15s ease,
-    border-color 0.15s ease;
-
-  &:hover {
-    transform: translateY(-1px);
-    border-color: rgba(255, 255, 255, 0.18);
-    background: rgba(255, 255, 255, 0.08);
-  }
-`;
-
-const CupTableHead = styled.div`
-  padding: 10px 14px 8px;
-  display: grid;
-  grid-template-columns: 1.6fr 140px 190px 190px 140px 160px;
-  gap: 10px;
-  color: rgba(255, 255, 255, 0.65);
-  font-size: 12px;
-
-  @media (max-width: 980px) {
-    grid-template-columns: 1fr 140px 140px;
-    .colHide {
-      display: none;
-    }
-  }
-`;
-
-const CupRows = styled.div`
-  display: grid;
-  gap: 8px;
-  padding: 0 14px 12px;
-`;
-
-const Row = styled.div`
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(0, 0, 0, 0.1);
-  padding: 10px 12px;
-
-  display: grid;
-  grid-template-columns: 1.6fr 140px 190px 190px 140px 160px;
-  gap: 10px;
-  align-items: center;
-
-  transition:
-    border-color 0.15s ease,
-    background 0.15s ease,
-    transform 0.15s ease;
-
-  &:hover {
-    transform: translateY(-1px);
-    border-color: rgba(255, 0, 110, 0.35);
-    background: rgba(255, 255, 255, 0.06);
-  }
-
-  @media (max-width: 980px) {
-    grid-template-columns: 1fr 140px 140px;
-    .colHide {
-      display: none;
-    }
-  }
-`;
-
-const MatchCell = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-`;
-
-const MatchBadge = styled.span`
-  width: 26px;
-  height: 26px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.85);
-  font-weight: 900;
-  font-size: 12px;
-`;
-
-const MatchText = styled.div`
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-`;
-
-const TeamsLine = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-`;
-
-const TeamBlock = styled.div`
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-`;
-
-const TeamName = styled.span`
-  font-weight: 950;
-  color: rgba(255, 255, 255, 0.92);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 220px;
-`;
-
-const Vs = styled.span`
-  font-size: 12px;
-  font-weight: 800;
-  color: rgba(255, 255, 255, 0.55);
-`;
-
-const SmallFlag = styled.img`
-  width: 22px;
-  height: 16px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  object-fit: cover;
-  background: rgba(0, 0, 0, 0.14);
-  flex: 0 0 auto;
-`;
-
-const MetaRow = styled.div`
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.66);
-`;
-
-const MiniPill = styled.span`
-  padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(0, 0, 0, 0.1);
-  color: rgba(255, 255, 255, 0.78);
-`;
-
-const AmountCell = styled.div`
-  display: flex;
-  align-items: baseline;
-  justify-content: flex-start;
-  gap: 8px;
-
-  .n {
-    font-weight: 950;
-    color: rgba(255, 255, 255, 0.92);
-  }
-  .u {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.66);
-    font-weight: 800;
-  }
-`;
-
-const WinCell = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-
-  .n {
-    font-weight: 980;
-    color: rgba(255, 235, 200, 0.94);
-    text-shadow: 0 0 16px rgba(255, 0, 110, 0.12);
-    letter-spacing: 0.2px;
-  }
-  .u {
-    font-size: 12px;
-    color: rgba(255, 255, 255, 0.66);
-    font-weight: 800;
-  }
-  .sub {
-    font-size: 11px;
-    color: rgba(255, 255, 255, 0.6);
-    font-weight: 800;
-  }
-`;
-
-const StatusPill = styled.span<{ $variant: 'ok' | 'muted' | 'final' }>`
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 900;
-  white-space: nowrap;
-
-  border: 1px solid
-    ${({ $variant }) =>
-      $variant === 'ok'
-        ? 'rgba(65, 214, 114, 0.45)'
-        : $variant === 'final'
-          ? 'rgba(255, 0, 110, 0.45)'
-          : 'rgba(255,255,255,0.18)'};
-  background: ${({ $variant }) =>
-    $variant === 'ok'
-      ? 'rgba(65, 214, 114, 0.14)'
-      : $variant === 'final'
-        ? 'rgba(255, 0, 110, 0.14)'
-        : 'rgba(255,255,255,0.08)'};
-  color: ${({ $variant }) =>
-    $variant === 'ok'
-      ? 'rgba(210, 255, 225, 0.95)'
-      : $variant === 'final'
-        ? 'rgba(255,255,255,0.92)'
-        : 'rgba(255,255,255,0.78)'};
-`;
-
-const ScorePill = styled.div`
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-
-  padding: 10px 12px;
-  border-radius: 16px;
-
-  border: 1px solid rgba(255, 0, 110, 0.35);
-  background: radial-gradient(520px 180px at 20% 15%, rgba(255, 0, 110, 0.22), transparent 60%), rgba(0, 0, 0, 0.1);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
-  min-width: 160px;
-
-  .label {
-    font-size: 11px;
-    letter-spacing: 0.8px;
-    font-weight: 900;
-    opacity: 0.75;
-  }
-
-  .score {
-    font-size: 22px;
-    font-weight: 950;
-    letter-spacing: 0.4px;
-    color: rgba(255, 255, 255, 0.95);
-  }
-
-  .hint {
-    font-size: 11px;
-    opacity: 0.75;
-  }
-`;
-
-const ClaimBtn = styled.button<{ disabled?: boolean }>`
-  position: relative;
-  height: 36px;
-  padding: 0 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 215, 0, 0.35);
-  cursor: pointer;
-  font-weight: 980;
-  color: rgba(35, 24, 0, 0.95);
-  letter-spacing: 0.2px;
-
-  background:
-    linear-gradient(135deg, rgba(255, 215, 0, 0.98) 0%, rgba(255, 179, 0, 0.96) 45%, rgba(255, 244, 200, 0.98) 100%),
-    radial-gradient(420px 160px at 20% 10%, rgba(255, 255, 255, 0.55), transparent 60%);
-  box-shadow:
-    0 14px 34px rgba(255, 200, 40, 0.22),
-    0 14px 28px rgba(0, 0, 0, 0.22);
-  transition:
-    transform 0.16s ease,
-    filter 0.16s ease,
-    box-shadow 0.16s ease,
-    opacity 0.16s ease;
-
-  &:hover {
-    transform: translateY(-1px);
-    filter: brightness(1.02);
-    box-shadow:
-      0 18px 46px rgba(255, 200, 40, 0.26),
-      0 16px 30px rgba(0, 0, 0, 0.26);
-  }
-
-  &:active {
-    transform: translateY(0);
-    filter: brightness(0.98);
-  }
-
-  &:disabled {
-    cursor: not-allowed;
-    opacity: 0.58;
-    transform: none;
-    filter: grayscale(0.2);
-    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.18);
-  }
-
-  &::after {
-    content: '';
-    position: absolute;
-    top: -40%;
-    left: -30%;
-    width: 60%;
-    height: 180%;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
-    transform: translateX(-120%) skewX(-20deg);
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  &:not(:disabled)::after {
-    animation: ${shimmer} 2.3s ease-in-out infinite;
-  }
-
-  &:not(:disabled) {
-    animation: ${pulse} 2.8s ease-in-out infinite;
-  }
-`;
-
-const ClaimBtnInner = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-`;
-
-const ClaimDot = styled.span`
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
-  background: rgba(35, 24, 0, 0.85);
-  box-shadow: 0 0 14px rgba(255, 255, 255, 0.35);
-`;
-
-const ActionWrap = styled.div`
-  display: flex;
-  justify-content: flex-end;
-`;
-
-const CupFoot = styled.div`
-  padding: 10px 14px 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-`;
-
-const ViewMore = styled.div`
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(0, 0, 0, 0.1);
-  color: rgba(255, 255, 255, 0.84);
-  padding: 10px 12px;
-  border-radius: 999px;
-  font-weight: 850;
-`;
-
-const Spinner = styled.div`
-  width: 1.05rem;
-  height: 1.05rem;
-  border: 2.5px solid rgba(35, 24, 0, 0.9);
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: ${spin} 0.85s linear infinite;
-  display: inline-block;
-  vertical-align: middle;
-`;
-
-const EmptyState = styled.div`
-  color: rgba(255, 255, 255, 0.7);
-  padding: 0.6rem 0.2rem;
-`;
-
-const ErrorState = styled.div`
-  color: rgba(255, 180, 180, 0.92);
-  padding: 0.6rem 0.2rem;
-`;
 
 function kickOffToMs(kickOff: string): number {
   const n = Number(kickOff);
@@ -838,13 +202,9 @@ function eligibleForPayout(
   const betOutcome = outcomeOf(betScore);
   const finalOutcome = outcomeOf(finalScore);
 
-  if (!knockout) {
-    return betOutcome === finalOutcome;
-  }
+  if (!knockout) return betOutcome === finalOutcome;
 
-  if (drawFinal) {
-    return !!betPenalty && !!finalPenalty && betPenalty === finalPenalty;
-  }
+  if (drawFinal) return !!betPenalty && !!finalPenalty && betPenalty === finalPenalty;
 
   return betOutcome === finalOutcome;
 }
@@ -863,7 +223,6 @@ export const QueryBetsByUserComponent: React.FC = () => {
 
   const [tab, setTab] = useState<'wc'>('wc');
   const [search, setSearch] = useState('');
-
   const [claimingByMatch, setClaimingByMatch] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
@@ -1007,265 +366,282 @@ export const QueryBetsByUserComponent: React.FC = () => {
   );
 
   return (
-    <Shell>
-      <TopHeader>
-        <HeaderRow>
-          <TitleBlock>
-            <Title>My Predictions</Title>
-            <Subtitle>
-              Potential Winnings shows an estimate, and becomes exact once the match is finalized + settled.
-            </Subtitle>
-          </TitleBlock>
+    <div className="mpShell">
+      <div className="mpBg" aria-hidden="true" />
 
-          <HeaderRight>
-            <SearchPill>
-              <SearchIcon>🔎</SearchIcon>
-              <SearchInput
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search teams, match id, score (e.g. 2-1), status"
-              />
-            </SearchPill>
+      <header className="mpTop">
+        <div className="mpTop__row">
+          <div className="mpTitle">
+            <h1>My Predictions</h1>
+            <p>Potential Winnings is an estimate and becomes exact once the match is finalized + settled.</p>
+          </div>
 
-            <Chips>
-              <Chip>
-                <ChipBadge>👤</ChipBadge>
-                <Wallet />
-              </Chip>
-            </Chips>
-          </HeaderRight>
-        </HeaderRow>
+          <div className="mpTop__right">
+            <StyledWallet />
+          </div>
+        </div>
 
-        <TabsRow>
-          <Tab $active={tab === 'wc'} onClick={() => setTab('wc')}>
+        <div className="mpTabs">
+          <button className={'mpTab ' + (tab === 'wc' ? 'is-active' : '')} onClick={() => setTab('wc')} type="button">
             World Cup 2026
-          </Tab>
-        </TabsRow>
-      </TopHeader>
+          </button>
+          <div className="mpSearch">
+            <span className="mpSearch__icon" aria-hidden="true">
+              ⌕
+            </span>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search teams, match id, score (e.g. 2-1), status"
+              aria-label="Search predictions"
+            />
+          </div>
 
-      <SectionTitle>
-        <div className="main">World Cup 2026</div>
-        <div className="sub">Knockout Stage</div>
-      </SectionTitle>
+          <div className="mpTools">
+            <button
+              className="mpIconBtn"
+              title="Refresh predictions"
+              onClick={() => (account && isApiReady ? fetchBets() : undefined)}
+              type="button">
+              ⟳
+            </button>
+            <button
+              className="mpIconBtn"
+              title="Refresh state"
+              onClick={() => (isApiReady ? fetchState() : undefined)}
+              type="button">
+              ⛁
+            </button>
+          </div>
+        </div>
 
-      {!connected ? (
-        <ErrorState>Connect your wallet to see your predictions.</ErrorState>
-      ) : loading ? (
-        <EmptyState>
-          <Spinner /> Loading predictions…
-        </EmptyState>
-      ) : errMsg ? (
-        <ErrorState>{errMsg}</ErrorState>
-      ) : (
-        <CupCard>
-          <CupHead>
-            <CupLeft>
-              <CupIcon>🏆</CupIcon>
-              <CupTitle>
-                <span className="t">World Cup 2026</span>
-                <span className="s">• Knockout Stage</span>
-              </CupTitle>
-            </CupLeft>
+        <div className="mpHintbar">
+          <span className="mpPill">Bet closes 10m before kickoff</span>
+          <span className="mpPill">75% Match / 20% Final / 5% DAO</span>
+          <span className="mpPill">On-chain pools</span>
+          <span className="mpPill mpPill--live">LIVE</span>
+        </div>
+      </header>
 
-            <CupTools>
-              <ToolBtn title="Refresh" onClick={() => (account && isApiReady ? fetchBets() : undefined)}>
-                ⟳
-              </ToolBtn>
-              <ToolBtn title="Refresh state" onClick={() => (isApiReady ? fetchState() : undefined)}>
-                ⛁
-              </ToolBtn>
-            </CupTools>
-          </CupHead>
+      <div className="mpSection">
+        <div className="mpSection__title">
+          <div className="mpSection__main">World Cup 2026</div>
+          <div className="mpSection__sub">Knockout Stage</div>
+        </div>
 
-          <CupTableHead>
-            <div>Match</div>
-            <div>Stake</div>
-            <div>Your Pick</div>
-            <div className="colHide">Potential / Real</div>
-            <div>Status</div>
-            <div>Action</div>
-          </CupTableHead>
+        {!connected ? (
+          <div className="mpState mpState--error">Connect your wallet to see your predictions.</div>
+        ) : loading ? (
+          <div className="mpState">
+            <span className="mpSpinner" aria-hidden="true" /> Loading predictions…
+          </div>
+        ) : errMsg ? (
+          <div className="mpState mpState--error">{errMsg}</div>
+        ) : (
+          <section className="mpCard">
+            <div className="mpCard__head">
+              <div className="mpCard__left">
+                <span className="mpCup">🏆</span>
+                <div className="mpCard__ttl">
+                  <div className="t">World Cup 2026</div>
+                  <div className="s">Knockout Stage</div>
+                </div>
+              </div>
 
-          <CupRows>
-            {wcBets.length === 0 ? (
-              <EmptyState style={{ padding: '10px 2px' }}>No Predictions found for your account.</EmptyState>
-            ) : (
-              wcBets.map((b, i) => {
-                const m = matchById.get(Number(b.match_id));
+              <div className="mpCard__right">
+                <span className="mpMini">{`Total bets: ${wcBets.length}`}</span>
+              </div>
+            </div>
 
-                const stakeBn = toBn(b.stake_in_match_pool);
-                const stakeHuman = Number(formatAmount(stakeBn, 12));
+            <div className="mpTable">
+              <div className="mpTHead">
+                <div>Match</div>
+                <div className="num">Stake</div>
+                <div className="center">Your Pick</div>
+                <div className="num hideMd">Potential / Real</div>
+                <div className="center">Status</div>
+                <div className="center">Action</div>
+              </div>
 
-                const pickText = `${b.score.home}-${b.score.away}`;
-                const betPenalty = parsePenaltyWinner(b.penalty_winner);
+              <div className="mpTBody">
+                {wcBets.length === 0 ? (
+                  <div className="mpEmpty">No Predictions found for your account.</div>
+                ) : (
+                  wcBets.map((b, i) => {
+                    const m = matchById.get(Number(b.match_id));
 
-                const home = m?.home ?? `Home`;
-                const away = m?.away ?? `Away`;
-                const phase = m?.phase ?? '—';
-                const kickoff = m?.kick_off ? formatKickoff(m.kick_off) : '—';
-                const poolHuman = m ? totalPoolVara(m) : '—';
+                    const stakeBn = toBn(b.stake_in_match_pool);
+                    const stakeHuman = Number(formatAmount(stakeBn, 12));
 
-                const current = m ? getCurrentScore(m.result) : { home: 0, away: 0, tag: 'OPEN' as const };
-                const matchFinal = m ? isMatchFinal(m.result) : false;
+                    const pickText = `${b.score.home}-${b.score.away}`;
+                    const betPenalty = parsePenaltyWinner(b.penalty_winner);
 
-                const settlementPrepared = !!m?.settlement_prepared;
-                const matchPoolBn = toBn(m?.match_prize_pool ?? 0);
-                const totalWinnerStakeBn = toBn(m?.total_winner_stake ?? 0);
+                    const home = m?.home ?? `Home`;
+                    const away = m?.away ?? `Away`;
+                    const phase = m?.phase ?? '—';
+                    const kickoff = m?.kick_off ? formatKickoff(m.kick_off) : '—';
+                    const poolHuman = m ? totalPoolVara(m) : '—';
 
-                const phaseWeight = m ? getPhaseWeight(m.phase, phases) : 1;
-                const { score: finalScore, penaltyWinner: finalPenalty } = m ? getFinalizedResult(m.result) : {};
+                    const current = m ? getCurrentScore(m.result) : { home: 0, away: 0, tag: 'OPEN' as const };
+                    const matchFinal = m ? isMatchFinal(m.result) : false;
 
-                const eligible = matchFinal
-                  ? eligibleForPayout(b.score, betPenalty, finalScore, finalPenalty, phaseWeight)
-                  : false;
+                    const settlementPrepared = !!m?.settlement_prepared;
+                    const matchPoolBn = toBn(m?.match_prize_pool ?? 0);
+                    const totalWinnerStakeBn = toBn(m?.total_winner_stake ?? 0);
 
-                const realBn =
-                  matchFinal && settlementPrepared && eligible
-                    ? computeDeterministicShareBn(stakeBn, matchPoolBn, totalWinnerStakeBn)
-                    : 0n;
+                    const phaseWeight = m ? getPhaseWeight(m.phase, phases) : 1;
+                    const { score: finalScore, penaltyWinner: finalPenalty } = m ? getFinalizedResult(m.result) : {};
 
-                const realHuman = Number(formatAmount(realBn, 12));
+                    const eligible = matchFinal
+                      ? eligibleForPayout(b.score, betPenalty, finalScore, finalPenalty, phaseWeight)
+                      : false;
 
-                const potentialBefore = matchPoolBn > 0n ? matchPoolBn : 0n;
-                const potentialText = potentialBefore > 0n ? `${formatAmount(potentialBefore, 12)}` : '—';
+                    const realBn =
+                      matchFinal && settlementPrepared && eligible
+                        ? computeDeterministicShareBn(stakeBn, matchPoolBn, totalWinnerStakeBn)
+                        : 0n;
 
-                const displayValue =
-                  settlementPrepared && matchFinal ? (eligible ? realHuman.toFixed(4) : '0.0000') : potentialText;
+                    const realHuman = Number(formatAmount(realBn, 12));
 
-                const exactHit = matchFinal ? isExactScore(b.score, finalScore) : false;
+                    const potentialBefore = matchPoolBn > 0n ? matchPoolBn : 0n;
+                    const potentialText = potentialBefore > 0n ? `${formatAmount(potentialBefore, 12)}` : '—';
 
-                const displaySub =
-                  settlementPrepared && matchFinal
-                    ? eligible
-                      ? exactHit
-                        ? 'Real (claimable • exact)'
-                        : 'Real (claimable • outcome)'
-                      : 'Not eligible'
-                    : 'Potential (max pool)';
+                    const displayValue =
+                      settlementPrepared && matchFinal ? (eligible ? realHuman.toFixed(4) : '0.0000') : potentialText;
 
-                const claimed = !!b.claimed;
-                const canClaim = matchFinal && settlementPrepared && eligible && !claimed;
+                    const exactHit = matchFinal ? isExactScore(b.score, finalScore) : false;
 
-                const statusVariant = claimed ? 'ok' : matchFinal ? 'final' : 'muted';
-                const statusLabelText = claimed ? 'Claimed' : matchFinal ? 'Finalized' : 'Pending';
+                    const displaySub =
+                      settlementPrepared && matchFinal
+                        ? eligible
+                          ? exactHit
+                            ? 'Real (claimable • exact)'
+                            : 'Real (claimable • outcome)'
+                          : 'Not eligible'
+                        : 'Potential (max pool)';
 
-                const isClaiming = !!claimingByMatch[Number(b.match_id)];
+                    const claimed = !!b.claimed;
+                    const canClaim = matchFinal && settlementPrepared && eligible && !claimed;
 
-                const claimTitle = claimed
-                  ? 'Already claimed'
-                  : !matchFinal
-                    ? 'Match not finalized yet'
-                    : !settlementPrepared
-                      ? 'Settlement not prepared yet (admin must prepare settlement)'
-                      : !eligible
-                        ? 'Not eligible (requires exact score OR correct outcome; in knockout draws: correct penalty winner)'
-                        : isClaiming
-                          ? 'Claiming...'
-                          : 'Claim your winnings';
+                    const statusLabelText = claimed ? 'Claimed' : matchFinal ? 'Finalized' : 'Pending';
+                    const statusTone = claimed ? 'ok' : matchFinal ? 'final' : 'muted';
 
-                return (
-                  <Row key={`wc-${String(b.match_id)}-${i}`}>
-                    <MatchCell>
-                      <MatchBadge>{i + 1}</MatchBadge>
+                    const isClaiming = !!claimingByMatch[Number(b.match_id)];
 
-                      <MatchText>
-                        <TeamsLine title={`${home} vs ${away}`}>
-                          <TeamBlock>
-                            <SmallFlag src={flagForTeam(home)} alt={`${home} flag`} />
-                            <TeamName>{home}</TeamName>
-                          </TeamBlock>
+                    const claimTitle = claimed
+                      ? 'Already claimed'
+                      : !matchFinal
+                        ? 'Match not finalized yet'
+                        : !settlementPrepared
+                          ? 'Settlement not prepared yet'
+                          : !eligible
+                            ? 'Not eligible'
+                            : isClaiming
+                              ? 'Claiming...'
+                              : 'Claim your winnings';
 
-                          <Vs>vs</Vs>
+                    return (
+                      <div className="mpRow" key={`wc-${String(b.match_id)}-${i}`}>
+                        <div className="mpMatch">
+                          <div className="mpIdx">{i + 1}</div>
 
-                          <TeamBlock>
-                            <TeamName>{away}</TeamName>
-                            <SmallFlag src={flagForTeam(away)} alt={`${away} flag`} />
-                          </TeamBlock>
-                        </TeamsLine>
+                          <div className="mpMatch__main">
+                            <div className="mpTeams" title={`${home} vs ${away}`}>
+                              <span className="mpTeam">
+                                <img className="mpFlag" src={flagForTeam(home)} alt={`${home} flag`} />
+                                <span className="mpName">{home}</span>
+                              </span>
 
-                        <MetaRow>
-                          <MiniPill>#{String(b.match_id)}</MiniPill>
+                              <span className="mpVs">vs</span>
 
-                          <MiniPill>{phase}</MiniPill>
-                          <MiniPill>Kickoff: {kickoff}</MiniPill>
-                          <MiniPill>Pool: {poolHuman}</MiniPill>
-                          <MiniPill>
-                            Current:{' '}
-                            <b style={{ color: 'rgba(255,255,255,.92)' }}>
-                              {current.home}-{current.away}
-                            </b>{' '}
-                            <span style={{ opacity: 0.7 }}>• {current.tag}</span>
-                          </MiniPill>
+                              <span className="mpTeam mpTeam--right">
+                                <span className="mpName">{away}</span>
+                                <img className="mpFlag" src={flagForTeam(away)} alt={`${away} flag`} />
+                              </span>
 
-                          {matchFinal ? (
-                            <MiniPill>
-                              Eligibility:{' '}
-                              <b style={{ color: eligible ? 'rgba(255,236,160,.95)' : 'rgba(255,180,180,.92)' }}>
-                                {eligible ? (exactHit ? 'Eligible (exact)' : 'Eligible (outcome)') : 'Not eligible'}
-                              </b>
-                            </MiniPill>
-                          ) : null}
+                              <span className={'mpTag mpTag--' + current.tag.toLowerCase()}>{current.tag}</span>
+                            </div>
 
-                          {matchFinal ? (
-                            <MiniPill>
-                              Settlement:{' '}
-                              <b
-                                style={{
-                                  color: settlementPrepared ? 'rgba(255,236,160,.95)' : 'rgba(255,235,200,.92)',
-                                }}>
-                                {settlementPrepared ? 'Ready' : 'Not prepared'}
-                              </b>
-                            </MiniPill>
-                          ) : null}
+                            <div className="mpMeta">
+                              <span className="mpChip">#{String(b.match_id)}</span>
+                              <span className="mpChip">{phase}</span>
+                              <span className="mpChip">Kickoff: {kickoff}</span>
+                              <span className="mpChip">Pool: {poolHuman}</span>
+                              <span className="mpChip">
+                                Current:{' '}
+                                <b>
+                                  {current.home}-{current.away}
+                                </b>
+                              </span>
+                              {betPenalty ? <span className="mpChip">Penalty: {betPenalty}</span> : null}
 
-                          {betPenalty ? <MiniPill>Penalty: {betPenalty}</MiniPill> : null}
-                        </MetaRow>
-                      </MatchText>
-                    </MatchCell>
+                              {matchFinal ? (
+                                <>
+                                  <span className={'mpChip ' + (eligible ? 'is-good' : 'is-bad')}>
+                                    Eligibility:{' '}
+                                    <b>
+                                      {eligible
+                                        ? exactHit
+                                          ? 'Eligible (exact)'
+                                          : 'Eligible (outcome)'
+                                        : 'Not eligible'}
+                                    </b>
+                                  </span>
+                                  <span className={'mpChip ' + (settlementPrepared ? 'is-good' : '')}>
+                                    Settlement: <b>{settlementPrepared ? 'Ready' : 'Not prepared'}</b>
+                                  </span>
+                                </>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
 
-                    <AmountCell>
-                      <span className="n">{Number.isFinite(stakeHuman) ? stakeHuman.toFixed(4) : '0.0000'}</span>
-                      <span className="u">VARA</span>
-                    </AmountCell>
+                        <div className="mpNum">
+                          <div className="mpNum__main">
+                            {Number.isFinite(stakeHuman) ? stakeHuman.toFixed(4) : '0.0000'}
+                          </div>
+                          <div className="mpNum__sub">VARA</div>
+                        </div>
 
-                    <ScorePill>
-                      <div className="label">YOUR PICK</div>
-                      <div className="score">{pickText}</div>
-                      <div className="hint">Score / outcome</div>
-                    </ScorePill>
+                        <div className="mpPick">
+                          <div className="mpPick__label">YOUR PICK</div>
+                          <div className="mpPick__score">{pickText}</div>
+                          <div className="mpPick__hint">Score / outcome</div>
+                        </div>
 
-                    <div className="colHide">
-                      <WinCell>
-                        <span className="n">{displayValue}</span>
-                        <span className="u">VARA</span>
-                        <span className="sub">{displaySub}</span>
-                      </WinCell>
-                    </div>
+                        <div className="mpWin hideMd">
+                          <div className="mpWin__main">{displayValue}</div>
+                          <div className="mpWin__sub">{displaySub}</div>
+                        </div>
 
-                    <StatusPill $variant={statusVariant as any}>{statusLabelText}</StatusPill>
+                        <div className="mpCenter">
+                          <span className={'mpStatus mpStatus--' + statusTone}>{statusLabelText}</span>
+                        </div>
 
-                    <ActionWrap>
-                      <ClaimBtn
-                        disabled={!canClaim || isClaiming}
-                        title={claimTitle}
-                        onClick={() => claim(Number(b.match_id))}>
-                        <ClaimBtnInner>
-                          {isClaiming ? <Spinner /> : <ClaimDot />}
-                          {isClaiming ? 'Claiming…' : canClaim ? `Claim` : claimed ? 'Claimed' : 'Claim'}
-                        </ClaimBtnInner>
-                      </ClaimBtn>
-                    </ActionWrap>
-                  </Row>
-                );
-              })
-            )}
-          </CupRows>
+                        <div className="mpCenter">
+                          <button
+                            className={'mpClaim ' + (canClaim ? 'is-ready' : '')}
+                            disabled={!canClaim || isClaiming}
+                            title={claimTitle}
+                            onClick={() => claim(Number(b.match_id))}
+                            type="button">
+                            <span className="mpClaim__dot" aria-hidden="true" />
+                            {isClaiming ? 'Claiming…' : claimed ? 'Claimed' : 'Claim'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
 
-          <CupFoot>
-            <ViewMore>Total Bets: {wcBets.length}</ViewMore>
-          </CupFoot>
-        </CupCard>
-      )}
-    </Shell>
+            <div className="mpCard__foot">
+              <span className="mpMini">Tip: In knockout draws, the penalty winner must match.</span>
+            </div>
+          </section>
+        )}
+      </div>
+    </div>
   );
 };

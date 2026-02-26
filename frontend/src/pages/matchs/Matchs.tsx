@@ -9,6 +9,7 @@ import { web3Enable } from '@polkadot/extension-dapp';
 import { Program, Service } from '@/hocs/lib';
 import { HexString } from '@gear-js/api';
 import { TEAM_FLAGS } from '@/utils/teams';
+import { StyledWallet } from '@/components/wallet/Wallet';
 
 
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as string;
@@ -271,9 +272,8 @@ function Match() {
               <div className="arena__statPill">
                 Pos: <b>{positionMock}</b> · Points: <b>{pointsMock}</b>
               </div>
-              <div className="arena__wallet">
-                <Wallet />
-              </div>
+             
+                <StyledWallet/>
             </div>
           </header>
 

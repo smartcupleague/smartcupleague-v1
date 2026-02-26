@@ -24,6 +24,7 @@ const TEAM_FLAGS: Record<string, string> = {
   SENEGAL: '/flags/senegal.jpg',
   SERBIA: '/flags/serbia.jpg',
   'SOUTH AFRICA': '/flags/south_africa.png',
+  'United States':'/flags/usa.jpg'
 };
 
 
