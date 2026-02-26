@@ -49,7 +49,12 @@ type BetCurrency = 'VARA' | 'wUSDC' | 'wUSDT';
 const VARA_DECIMALS = 12n;
 const VARA_PLANCK = 10n ** VARA_DECIMALS;
 
+const PROTOCOL_FEE_BPS = 500n;
+const FINAL_PRIZE_BPS = 2000n;
+const BPS_DEN = 10_000n;
 
+type PenaltyWinnerArg = { Home: null } | { Away: null };
+type MaybePenaltyWinnerArg = PenaltyWinnerArg | null;
 
 function normalizeTeamKey(team: string) {
   return (team || '').trim().toUpperCase().replace(/\s+/g, ' ');
@@ -212,6 +217,33 @@ function formatVaraFromPlanck(planck: bigint) {
   return frac ? `${intPart}.${frac}` : intPart;
 }
 
+function normalizeAmountInput(v: string) {
+  const s = String(v ?? '')
+    .replace(',', '.')
+    .replace(/[^\d.]/g, '');
+  const parts = s.split('.');
+  if (parts.length <= 1) return s;
+  return `${parts[0]}.${parts.slice(1).join('')}`;
+}
+
+function isKnockoutPhase(phase?: string): boolean {
+  const p = String(phase ?? '')
+    .trim()
+    .toLowerCase();
+  if (!p) return false;
+
+  if (p.includes('group')) return false;
+
+  const koHints = ['round of', 'r16', 'r32', 'quarter', 'semi', 'final', 'knockout', 'playoff', 'bracket', 'qf', 'sf'];
+  return koHints.some((k) => p.includes(k));
+}
+
+function deducePenaltyWinnerArg(pens: Score): MaybePenaltyWinnerArg {
+  if (pens.home > pens.away) return { Home: null };
+  if (pens.away > pens.home) return { Away: null };
+  return null;
+}
+
 export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentScore, currentScoreText }) => {
   const navigate = useNavigate();
   const { account } = useAccount();
@@ -314,6 +346,8 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
     return kickOffToMs(match.kick_off) > Date.now();
   }, [match]);
 
+  const isKnockout = useMemo(() => isKnockoutPhase(match?.phase), [match?.phase]);
+
   const chainResult = useMemo(() => getResultDetails(match?.result), [match?.result]);
 
   const isFinalized = useMemo(() => {
@@ -374,14 +408,22 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
     if (v === '') setter('0');
   };
 
+  const predictedPenaltyWinnerArg = useMemo<MaybePenaltyWinnerArg>(() => {
+    if (!isDraw) return null;
+    if (!isKnockout) return null;
+    return deducePenaltyWinnerArg(penalties);
+  }, [isDraw, isKnockout, penalties]);
+
   const canBet = useMemo(() => {
     if (!match) return false;
     if (isFinalized) return false;
     if (!isBeforeKickoff) return false;
     if (betDisabledByAmount) return false;
-    if (isDraw && penalties.home === penalties.away) return false;
+
+    if (isDraw && isKnockout && predictedPenaltyWinnerArg === null) return false;
+
     return true;
-  }, [match, isFinalized, isBeforeKickoff, betDisabledByAmount, isDraw, penalties.home, penalties.away]);
+  }, [match, isFinalized, isBeforeKickoff, betDisabledByAmount, isDraw, isKnockout, predictedPenaltyWinnerArg]);
 
   const settlementPrepared = !!match?.settlement_prepared;
   const matchPrizePoolBn = useMemo(() => toBnSafe(match?.match_prize_pool ?? 0), [match?.match_prize_pool]);
@@ -392,7 +434,6 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
     if (!isFinalized) return 0n;
     if (!settlementPrepared) return 0n;
     if (userClaimed) return 0n;
-
     return computeShareBn(userStakeBn, matchPrizePoolBn, totalWinnerStakeBn);
   }, [match, isFinalized, settlementPrepared, userClaimed, userStakeBn, matchPrizePoolBn, totalWinnerStakeBn]);
 
@@ -404,6 +445,24 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
     if (loadingUserBet) return false;
     return claimableBn > 0n;
   }, [account, match, isFinalized, settlementPrepared, loadingUserBet, claimableBn]);
+
+  const betValueBn = useMemo(
+    () => (betCurrency === 'VARA' ? toPlanck(betAmountNumber) : 0n),
+    [betCurrency, betAmountNumber],
+  );
+  const feeProtocolBn = useMemo(() => (betValueBn * PROTOCOL_FEE_BPS) / BPS_DEN, [betValueBn]);
+  const feeFinalBn = useMemo(() => (betValueBn * FINAL_PRIZE_BPS) / BPS_DEN, [betValueBn]);
+
+  const stakeInMatchPoolBn = useMemo(() => {
+    if (betValueBn <= 0n) return 0n;
+    const cut = betValueBn - feeProtocolBn - feeFinalBn; // 75%
+    return cut > 0n ? cut : 0n;
+  }, [betValueBn, feeProtocolBn, feeFinalBn]);
+
+  const poolAfterBn = useMemo(() => matchPrizePoolBn + stakeInMatchPoolBn, [matchPrizePoolBn, stakeInMatchPoolBn]);
+  const maxPayoutBn = poolAfterBn;
+  const maxProfitBn = maxPayoutBn > betValueBn ? maxPayoutBn - betValueBn : 0n;
+  const showToWin = useMemo(() => betCurrency === 'VARA' && betValueBn > 0n, [betCurrency, betValueBn]);
 
   const handlePlaceBet = useCallback(async () => {
     if (!match) return;
@@ -433,20 +492,34 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
     const h = clampScore(selectedScore.home);
     const a = clampScore(selectedScore.away);
 
-    if (h === a) {
-      const ph = clampPenalties(penalties.home);
-      const pa = clampPenalties(penalties.away);
-      if (ph === pa) {
+    const drawPredicted = h === a;
+
+    let penaltyWinnerToSend: MaybePenaltyWinnerArg = null;
+
+    if (drawPredicted && isKnockout) {
+      const pensH = clampPenalties(penalties.home);
+      const pensA = clampPenalties(penalties.away);
+
+      const arg = deducePenaltyWinnerArg({ home: pensH, away: pensA });
+      if (!arg) {
         toast.error('In penalties there must be a winner (no tie).');
         return;
       }
+      penaltyWinnerToSend = arg;
+    } else {
+      penaltyWinnerToSend = null;
     }
 
     try {
       setTxLoadingBet(true);
 
       const svc = new Service(new Program(api, PROGRAM_ID as HexString));
-      const tx: TransactionBuilder<unknown> = (svc as any).placeBet(BigInt(match.match_id), { home: h, away: a });
+
+      const tx: TransactionBuilder<unknown> = (svc as any).placeBet(
+        BigInt(match.match_id),
+        { home: h, away: a },
+        penaltyWinnerToSend,
+      );
 
       const { signer } = await web3FromSource(account.meta.source);
 
@@ -492,6 +565,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
     toast,
     fetchState,
     fetchUserBetForMatch,
+    isKnockout,
   ]);
 
   const handleClaim = useCallback(async () => {
@@ -522,7 +596,6 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
       setTxLoadingClaim(true);
 
       const svc = new Service(new Program(api, PROGRAM_ID as HexString));
-
       const tx: TransactionBuilder<unknown> = (svc as any).claimMatchReward(BigInt(match.match_id));
 
       const { signer } = await web3FromSource(account.meta.source);
@@ -556,11 +629,17 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
     if (!match) return '—';
     if (!isDraw)
       return `${match.home.toUpperCase()} ${selectedScore.home} - ${selectedScore.away} ${match.away.toUpperCase()}`;
-    const winner = penalties.home > penalties.away ? match.home : penalties.away > penalties.home ? match.away : '—';
-    if (winner === '—')
-      return `${match.home.toUpperCase()} ${selectedScore.home} - ${selectedScore.away} ${match.away.toUpperCase()}`;
-    return `${match.home.toUpperCase()} ${selectedScore.home} - ${selectedScore.away} ${match.away.toUpperCase()} (${winner} wins on penalties)`;
-  }, [match, isDraw, selectedScore.home, selectedScore.away, penalties.home, penalties.away]);
+
+    if (isKnockout) {
+      const arg = predictedPenaltyWinnerArg;
+      const winner = arg && 'Home' in arg ? match.home : arg && 'Away' in arg ? match.away : '—';
+      if (winner !== '—') {
+        return `${match.home.toUpperCase()} ${selectedScore.home} - ${selectedScore.away} ${match.away.toUpperCase()} (${winner} wins on penalties)`;
+      }
+    }
+
+    return `${match.home.toUpperCase()} ${selectedScore.home} - ${selectedScore.away} ${match.away.toUpperCase()}`;
+  }, [match, isDraw, selectedScore.home, selectedScore.away, isKnockout, predictedPenaltyWinnerArg]);
 
   const finalizedMessage = useMemo(() => {
     if (!match || !isFinalized) return '';
@@ -608,7 +687,6 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
   }
 
   const poolVara = planckToVaraHuman(totalPoolPlanck(match));
-
   const topScoreHome = isFinalized ? chainResult.home : shownScore.home;
   const topScoreAway = isFinalized ? chainResult.away : shownScore.away;
 
@@ -690,11 +768,9 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
               <div className="mcx__formCol">
                 <div className="mcx__label dim">{match.home}</div>
                 <input
-                  className="mcx__inp"
-                  type="number"
+                  className="mcx__inp mcx__inp--wine"
+                  type="text"
                   inputMode="numeric"
-                  min={0}
-                  max={20}
                   disabled={txLoadingBet || !isBeforeKickoff}
                   value={selectedScoreTextState.home}
                   onFocus={() =>
@@ -712,7 +788,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
                     setSelectedScore((s) => ({ ...s, home: v === '' ? 0 : clampScore(v) }));
                   }}
                   onChange={(e) => {
-                    const raw = e.target.value;
+                    const raw = e.target.value.replace(/[^\d]/g, '');
                     setSelectedScoreTextState((s) => ({ ...s, home: raw }));
                     setSelectedScore((s) => ({ ...s, home: raw === '' ? 0 : clampScore(raw) }));
                   }}
@@ -722,11 +798,9 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
               <div className="mcx__formCol">
                 <div className="mcx__label dim">{match.away}</div>
                 <input
-                  className="mcx__inp"
-                  type="number"
+                  className="mcx__inp mcx__inp--wine"
+                  type="text"
                   inputMode="numeric"
-                  min={0}
-                  max={20}
                   disabled={txLoadingBet || !isBeforeKickoff}
                   value={selectedScoreTextState.away}
                   onFocus={() =>
@@ -744,7 +818,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
                     setSelectedScore((s) => ({ ...s, away: v === '' ? 0 : clampScore(v) }));
                   }}
                   onChange={(e) => {
-                    const raw = e.target.value;
+                    const raw = e.target.value.replace(/[^\d]/g, '');
                     setSelectedScoreTextState((s) => ({ ...s, away: raw }));
                     setSelectedScore((s) => ({ ...s, away: raw === '' ? 0 : clampScore(raw) }));
                   }}
@@ -752,19 +826,17 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
               </div>
             </div>
 
-            {selectedScore.home === selectedScore.away && (
-              <div className="mcx__penBox">
-                <div className="mcx__penTitle">Penalties (choose a winner)</div>
+            {isDraw && (
+              <div className="mcx__penBox mcx__penBox--wine">
+                <div className="mcx__penTitle">Penalties {isKnockout ? '(required)' : ''}</div>
 
                 <div className="mcx__formGrid">
                   <div className="mcx__formCol">
                     <div className="mcx__label dim">{match.home}</div>
                     <input
-                      className="mcx__inp"
-                      type="number"
+                      className="mcx__inp mcx__inp--wine"
+                      type="text"
                       inputMode="numeric"
-                      min={0}
-                      max={10}
                       disabled={txLoadingBet || !isBeforeKickoff}
                       value={penaltiesTextState.home}
                       onFocus={() =>
@@ -782,7 +854,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
                         setPenalties((p) => ({ ...p, home: v === '' ? 0 : clampPenalties(v) }));
                       }}
                       onChange={(e) => {
-                        const raw = e.target.value;
+                        const raw = e.target.value.replace(/[^\d]/g, '');
                         setPenaltiesTextState((p) => ({ ...p, home: raw }));
                         setPenalties((p) => ({ ...p, home: raw === '' ? 0 : clampPenalties(raw) }));
                       }}
@@ -792,11 +864,9 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
                   <div className="mcx__formCol">
                     <div className="mcx__label dim">{match.away}</div>
                     <input
-                      className="mcx__inp"
-                      type="number"
+                      className="mcx__inp mcx__inp--wine"
+                      type="text"
                       inputMode="numeric"
-                      min={0}
-                      max={10}
                       disabled={txLoadingBet || !isBeforeKickoff}
                       value={penaltiesTextState.away}
                       onFocus={() =>
@@ -814,7 +884,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
                         setPenalties((p) => ({ ...p, away: v === '' ? 0 : clampPenalties(v) }));
                       }}
                       onChange={(e) => {
-                        const raw = e.target.value;
+                        const raw = e.target.value.replace(/[^\d]/g, '');
                         setPenaltiesTextState((p) => ({ ...p, away: raw }));
                         setPenalties((p) => ({ ...p, away: raw === '' ? 0 : clampPenalties(raw) }));
                       }}
@@ -822,28 +892,58 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
                   </div>
                 </div>
 
-                <div className="dim" style={{ marginTop: 8 }}>
-                  If you predict a draw, you must decide the winner on penalties.
-                </div>
-                {penalties.home === penalties.away && <div className="mcx__warn">Penalties can’t end in a tie.</div>}
+                {isKnockout && predictedPenaltyWinnerArg === null ? (
+                  <div className="mcx__warn">Penalties can’t end in a tie (knockout draw requires a winner).</div>
+                ) : (
+                  <div className="dim" style={{ marginTop: 8 }}>
+                    {isKnockout
+                      ? `Winner will be sent on-chain as: ${predictedPenaltyWinnerArg ? ('Home' in predictedPenaltyWinnerArg ? 'Home' : 'Away') : '—'}`
+                      : ``}
+                  </div>
+                )}
               </div>
             )}
 
             <div className="mcx__formGrid" style={{ marginTop: 12 }}>
               <div className="mcx__formCol">
                 <div className="mcx__label dim">Bet amount</div>
-                <input
-                  className="mcx__inp"
-                  inputMode="decimal"
-                  value={betAmount}
-                  onChange={(e) => setBetAmount(e.target.value)}
-                />
+                <div className="mcx__amountWrap">
+                  <span className="mcx__amountPill">VARA</span>
+                  <input
+                    className="mcx__inp mcx__inp--wine mcx__inp--amount"
+                    inputMode="decimal"
+                    value={betAmount}
+                    onChange={(e) => setBetAmount(normalizeAmountInput(e.target.value))}
+                    placeholder="0.00"
+                  />
+                </div>
+
+                <div className="mcx__quickRow">
+                  <button
+                    className="mcx__qBtn"
+                    type="button"
+                    onClick={() => setBetAmount(String((betAmountNumber || 0) + 1))}>
+                    +1
+                  </button>
+                  <button
+                    className="mcx__qBtn"
+                    type="button"
+                    onClick={() => setBetAmount(String((betAmountNumber || 0) + 10))}>
+                    +10
+                  </button>
+                  <button
+                    className="mcx__qBtn"
+                    type="button"
+                    onClick={() => setBetAmount(String((betAmountNumber || 0) + 50))}>
+                    +50
+                  </button>
+                </div>
               </div>
 
               <div className="mcx__formCol">
                 <div className="mcx__label dim">Currency</div>
                 <select
-                  className="mcx__sel"
+                  className="mcx__sel mcx__sel--wine"
                   value={betCurrency}
                   onChange={(e) => setBetCurrency(e.target.value as BetCurrency)}>
                   <option value="VARA">VARA</option>
@@ -863,6 +963,47 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
               disabled={txLoadingBet || !canBet}>
               {txLoadingBet ? 'Sending Bet…' : `Send Prediction (${betAmountNumber || 0} ${betCurrency})`}
             </button>
+
+            <div className={'mcx__toWin ' + (showToWin ? 'is-on' : 'is-off')}>
+              <div className="mcx__toWinLeft">
+                <div className="mcx__toWinTitle">
+                  Potential profit <span className="mcx__chip">VARA</span>
+                </div>
+
+                {showToWin ? (
+                  <div className="mcx__breakdown">
+                    <div className="mcx__bdRow">
+                      <span className="dim">Your stake into match pool (75%)</span>
+                      <b>{formatVaraFromPlanck(stakeInMatchPoolBn)} VARA</b>
+                    </div>
+                    <div className="mcx__bdRow">
+                      <span className="dim">Protocol fee (5%)</span>
+                      <b>{formatVaraFromPlanck(feeProtocolBn)} VARA</b>
+                    </div>
+                    <div className="mcx__bdRow">
+                      <span className="dim">Final prize (20%)</span>
+                      <b>{formatVaraFromPlanck(feeFinalBn)} VARA</b>
+                    </div>
+                    <div className="mcx__bdRow">
+                      <span className="dim">Pool after your bet</span>
+                      <b>{formatVaraFromPlanck(poolAfterBn)} VARA</b>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mcx__breakdown dim">Enter an amount to preview potential winnings.</div>
+                )}
+              </div>
+
+              <div className="mcx__toWinRight">
+                <div className="mcx__toWinValue">{showToWin ? formatVaraFromPlanck(maxProfitBn) : '—'}</div>
+                <div className="mcx__toWinUnit">VARA</div>
+                <div className="mcx__toWinNote dim">
+                  Max profit (if you're the only winner)
+                  <br />
+                  Max payout: {showToWin ? formatVaraFromPlanck(maxPayoutBn) : '—'} VARA
+                </div>
+              </div>
+            </div>
           </>
         )}
       </details>

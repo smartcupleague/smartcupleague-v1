@@ -1,9 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import styled, { keyframes } from 'styled-components';
-import { useAccount } from '@gear-js/react-hooks';
+import { useAccount, useBalance } from '@gear-js/react-hooks';
 import { Wallet as GearWallet } from '@gear-js/wallet-connect';
-import { FaWallet } from 'react-icons/fa';
-import { HiSparkles } from 'react-icons/hi2';
 
 const shimmer = keyframes`
   0%   { transform: translateX(-140%) skewX(-18deg); opacity: 0; }
@@ -17,37 +15,105 @@ const breathe = keyframes`
   50%      { transform: translateY(-1px); filter: brightness(1.05); }
 `;
 
-const glow = keyframes`
-  0%, 100% { box-shadow: 0 0 0 rgba(255, 46, 118, 0), 0 0 0 rgba(0,0,0,0); }
-  50%      { box-shadow: 0 0 26px rgba(255, 46, 118, .14), 0 18px 60px rgba(0,0,0,.25); }
-`;
+const PLAK_DECIMALS = 12n;
 
-const pulseRing = keyframes`
-  0%   { transform: scale(.92); opacity: .0; }
-  45%  { opacity: .55; }
-  100% { transform: scale(1.18); opacity: 0; }
-`;
+function getLocaleSeparators(locale: string) {
+  const parts = new Intl.NumberFormat(locale).formatToParts(1000.1);
+  const group = parts.find((p) => p.type === 'group')?.value ?? ',';
+  const decimal = parts.find((p) => p.type === 'decimal')?.value ?? '.';
+  return { group, decimal };
+}
 
-const InlineWrap = styled.div<{ $connected?: boolean }>`
+function formatBigIntLocale(n: bigint, locale: string) {
+  const { group } = getLocaleSeparators(locale);
+  const s = n.toString();
+  let out = '';
+  for (let i = 0; i < s.length; i++) {
+    const idx = s.length - i;
+    out = s[idx - 1] + out;
+    if (i % 3 === 2 && idx - 1 !== 0) out = group + out;
+  }
+  return out;
+}
+
+function formatPlak(input: string | bigint | number | undefined, maxFractionDigits = 4, locale = 'es-MX') {
+  if (input === undefined || input === null) return null;
+  let raw: bigint;
+  try {
+    raw = typeof input === 'bigint' ? input : BigInt(String(input));
+  } catch {
+    return null;
+  }
+
+  const negative = raw < 0n;
+  const abs = negative ? -raw : raw;
+  const base = 10n ** PLAK_DECIMALS;
+
+  const whole = abs / base;
+  const frac = abs % base;
+
+  const scale = 10n ** BigInt(maxFractionDigits);
+  const scaledFrac = (frac * scale) / base;
+
+  const { decimal } = getLocaleSeparators(locale);
+  const wholeStr = formatBigIntLocale(whole, locale);
+  const fracStr = scaledFrac.toString().padStart(maxFractionDigits, '0').replace(/0+$/, '');
+
+  const sign = negative ? '-' : '';
+  return fracStr.length ? `${sign}${wholeStr}${decimal}${fracStr}` : `${sign}${wholeStr}`;
+}
+
+/** ===== Layout principal: balance (izq) + wallet (der) ===== */
+const Row = styled.div`
   width: 100%;
   min-width: 0;
-  flex: 1 1 auto;
-
-  display: grid;
-  gap: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 
   &,
   & * {
     box-sizing: border-box;
   }
 
-  /* GearWallet wrappers stretch */
+  @media (max-width: 720px) {
+    flex-direction: column;
+    align-items: stretch;
+  }
+`;
+
+const Left = styled.div`
+  flex: 1 1 auto;
+  min-width: 0; /* CRÍTICO: permite que el texto haga ellipsis y no empuje al wallet */
+  display: flex;
+  align-items: center;
+`;
+
+
+const WalletSlot = styled.div`
+  flex: 0 0 clamp(220px, 28vw, 340px);
+  min-width: 220px;
+  max-width: 360px;
+
+  @media (max-width: 720px) {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
+  }
+`;
+
+/** Wrapper para estilizar el botón interno de GearWallet */
+const InlineWrap = styled.div<{ $connected?: boolean }>`
+  width: 100%;
+  min-width: 0;
+
+  /* Asegura que el GearWallet y wrappers usen todo el ancho del slot */
   > div,
   > div > div {
     width: 100%;
+    min-width: 0;
   }
 
-  /* kill unknown wrapper backgrounds */
   div {
     background: transparent;
   }
@@ -55,37 +121,29 @@ const InlineWrap = styled.div<{ $connected?: boolean }>`
   button {
     width: 100% !important;
     min-width: 0 !important;
-    height: 44px;
-
+    height: 46px;
     border-radius: 16px;
     position: relative;
     overflow: hidden;
-
     border: 1px solid ${({ $connected }) => ($connected ? 'rgba(255, 46, 118, .42)' : 'rgba(255,255,255,.14)')};
-
     background:
-      radial-gradient(800px 200px at 18% 8%, rgba(255, 46, 118, 0.24), transparent 60%),
-      radial-gradient(640px 180px at 85% 30%, rgba(168, 5, 69, 0.16), transparent 65%),
+      radial-gradient(820px 220px at 18% 8%, rgba(255, 46, 118, 0.24), transparent 60%),
+      radial-gradient(680px 200px at 85% 30%, rgba(112, 82, 255, 0.14), transparent 65%),
       linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.16));
-
     backdrop-filter: blur(12px);
-    color: rgba(255, 255, 255, 0.92);
-
+    color: rgba(255, 255, 255, 0.96);
+    -webkit-text-fill-color: rgba(255, 255, 255, 0.96);
     font-weight: 950;
     font-size: 13px;
-    letter-spacing: 0.2px;
-
+    letter-spacing: 0.22px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 10px;
-
-    padding: 0 14px;
-
+    padding: 0 14px 0 14px; /* ✅ mínimo: evita “comer” espacio con icon padding */
     box-shadow:
       0 14px 40px rgba(0, 0, 0, 0.34),
       0 0 0 1px rgba(255, 255, 255, 0.035) inset;
-
     cursor: pointer;
     transition:
       transform 0.16s ease,
@@ -94,7 +152,6 @@ const InlineWrap = styled.div<{ $connected?: boolean }>`
       box-shadow 0.16s ease;
   }
 
-  /* glossy sheen */
   button::after {
     content: '';
     position: absolute;
@@ -125,171 +182,151 @@ const InlineWrap = styled.div<{ $connected?: boolean }>`
     transform: translateY(0);
     filter: brightness(0.98);
   }
-
-  button svg {
-    width: 20px;
-    height: 20px;
-    opacity: 0.95;
-    flex: 0 0 auto;
-    filter: drop-shadow(0 0 14px rgba(255, 46, 118, 0.14));
-  }
-
-  /* Gear Wallet internal layout */
-  button > * {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-  }
-
-  /* make long addresses not break */
-  button span,
-  button p,
-  button div {
-    min-width: 0;
-  }
 `;
 
-const MiniHead = styled.div<{ $connected?: boolean }>`
-  width: 100%;
+/** ===== Balance (anti-overflow + dorado pro) ===== */
+const BalancePill = styled.div`
+  flex: 1 1 auto;
   min-width: 0;
+  max-width: 100%;
 
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: inline-flex;
+  align-items: baseline;
   gap: 10px;
 
   padding: 10px 12px;
-  border-radius: 16px;
+  border-radius: 14px;
 
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   background:
-    radial-gradient(720px 220px at 18% 10%, rgba(255, 46, 118, 0.16), transparent 60%),
+    radial-gradient(520px 120px at 20% 25%, rgba(255, 46, 118, 0.14), transparent 55%),
+    radial-gradient(520px 120px at 85% 55%, rgba(112, 82, 255, 0.12), transparent 60%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.14));
-
   backdrop-filter: blur(12px);
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.30);
-  position: relative;
+
+  box-shadow:
+    0 14px 44px rgba(0,0,0,.32),
+    0 0 0 1px rgba(255,255,255,.04) inset;
+
   overflow: hidden;
-
-  &::after {
-    content: '';
-    position: absolute;
-    top: -70%;
-    left: -45%;
-    width: 75%;
-    height: 260%;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
-    transform: translateX(-140%) skewX(-18deg);
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  &:hover::after {
-    animation: ${shimmer} 2.35s ease-in-out infinite;
-  }
-
-  .left {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-  }
-
-  .ico {
-    width: 30px;
-    height: 30px;
-    border-radius: 12px;
-    display: grid;
-    place-items: center;
-    position: relative;
-
-    border: 1px solid ${({ $connected }) => ($connected ? 'rgba(255, 46, 118, .34)' : 'rgba(255,255,255,.12)')};
-    background:
-      radial-gradient(circle at 30% 20%, rgba(255, 46, 118, 0.22), transparent 62%),
-      rgba(0, 0, 0, 0.10);
-
-    animation: ${glow} 2.8s ease-in-out infinite;
-  }
-
-  /* pulse ring when connected */
-  .ico::before {
-    content: '';
-    position: absolute;
-    inset: -8px;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 46, 118, 0.22);
-    background: radial-gradient(circle, rgba(255, 46, 118, 0.14), transparent 60%);
-    opacity: ${({ $connected }) => ($connected ? 1 : 0)};
-    animation: ${({ $connected }) => ($connected ? pulseRing : 'none')} 2.4s ease-in-out infinite;
-    pointer-events: none;
-  }
-
-  .label {
-    font-weight: 950;
-    font-size: 12px;
-    letter-spacing: 0.12em;
-    color: rgba(255, 255, 255, 0.92);
-    text-transform: uppercase;
-    white-space: nowrap;
-  }
-
-  .status {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-
-    padding: 7px 10px;
-    border-radius: 999px;
-    font-size: 12px;
-    font-weight: 950;
-    white-space: nowrap;
-
-    border: 1px solid ${({ $connected }) => ($connected ? 'rgba(65, 214, 114, .34)' : 'rgba(255,255,255,.14)')};
-    background: ${({ $connected }) => ($connected ? 'rgba(65, 214, 114, 0.12)' : 'rgba(0,0,0,0.10)')};
-    color: ${({ $connected }) => ($connected ? 'rgba(210, 255, 225, 0.95)' : 'rgba(255,255,255,0.86)')};
-
-    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18);
-    animation: ${({ $connected }) => ($connected ? breathe : 'none')} 3.2s ease-in-out infinite;
-  }
-
-  .status svg {
-    width: 18px;
-    height: 18px;
-    opacity: 0.95;
-    filter: ${({ $connected }) =>
-      $connected ? 'drop-shadow(0 0 14px rgba(65,214,114,.16))' : 'drop-shadow(0 0 14px rgba(255,46,118,.10))'};
-  }
 `;
 
+const BalanceLabel = styled.div`
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.72);
+  white-space: nowrap;
+`;
+
+const AmountGold = styled.div`
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: clamp(140px, 22vw, 360px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  font-size: clamp(16px, 2.2vw, 20px);
+  font-weight: 1000;
+  letter-spacing: 0.2px;
+  line-height: 1.05;
+
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+
+  background: linear-gradient(
+    90deg,
+    #fff6bf 0%,
+    #ffd36a 22%,
+    #f5c542 45%,
+    #d6a21e 62%,
+    #fff1b0 82%,
+    #ffffff 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+
+  text-shadow:
+    0 0 18px rgba(245, 197, 66, 0.22),
+    0 0 26px rgba(214, 162, 30, 0.16),
+    0 1px 0 rgba(0, 0, 0, 0.55);
+`;
+
+const TokenPro = styled.div`
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.84);
+  white-space: nowrap;
+  opacity: 0.9;
+`;
+
+const Status = styled.div<{ $connected?: boolean }>`
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 950;
+  white-space: nowrap;
+
+  border: 1px solid ${({ $connected }) => ($connected ? 'rgba(65, 214, 114, .34)' : 'rgba(255,255,255,.14)')};
+  background: ${({ $connected }) => ($connected ? 'rgba(65, 214, 114, 0.12)' : 'rgba(0,0,0,0.10)')};
+  color: ${({ $connected }) => ($connected ? 'rgba(210, 255, 225, 0.95)' : 'rgba(255,255,255,0.86)')};
+
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18);
+  animation: ${({ $connected }) => ($connected ? breathe : 'none')} 3.2s ease-in-out infinite;
+`;
+
+/** ===== Props ===== */
 type StyledWalletProps = {
-  fullWidth?: boolean;
   showHeader?: boolean;
+  tokenSymbol?: string;
+  showStatus?: boolean;
 };
 
-export function StyledWallet({ showHeader = false }: StyledWalletProps) {
+export function StyledWallet({ showHeader = true, tokenSymbol = 'VARA', showStatus = false }: StyledWalletProps) {
   const { account } = useAccount();
   const connected = !!account;
 
-  return (
-    <InlineWrap $connected={connected}>
-      {showHeader ? (
-        <MiniHead $connected={connected}>
-          <div className="left">
-            <div className="ico" aria-hidden="true">
-              <FaWallet />
-            </div>
-            <div className="label">Wallet</div>
-          </div>
+  const address = connected ? account!.decodedAddress : undefined;
+  const { balance, isBalanceReady } = useBalance(address);
 
-          <div className="status">
-            <HiSparkles />
-            {connected ? 'Connected' : 'Not connected'}
-          </div>
-        </MiniHead>
+  const amount = useMemo(() => {
+    if (!connected || !isBalanceReady) return null;
+    return formatPlak(balance?.toString(), 4, 'es-MX');
+  }, [connected, isBalanceReady, balance]);
+
+  return (
+    <Row>
+      {showHeader ? (
+        <Left>
+          {connected ? (
+            <BalancePill>
+              <BalanceLabel>Balance</BalanceLabel>
+              <AmountGold title={`${amount ?? '0'} ${tokenSymbol}`}>{amount ?? '0'}</AmountGold>
+              <TokenPro>{tokenSymbol}</TokenPro>
+              {showStatus ? <Status $connected={connected}>Connected</Status> : null}
+            </BalancePill>
+          ) : (
+            <></>
+          )}
+        </Left>
       ) : null}
 
-      <GearWallet theme="vara" displayBalance={false} />
-    </InlineWrap>
+      <WalletSlot>
+        <InlineWrap $connected={connected}>
+          <GearWallet theme="vara" displayBalance={false} />
+        </InlineWrap>
+      </WalletSlot>
+    </Row>
   );
 }

@@ -10,10 +10,9 @@ import { Program, Service } from '@/hocs/lib';
 import { HexString } from '@gear-js/api';
 import { TEAM_FLAGS } from '@/utils/teams';
 import { StyledWallet } from '@/components/wallet/Wallet';
-
+import { Header } from '@/components';
 
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as string;
-
 
 function normalizeTeamKey(team: string) {
   return (team || '').trim().toUpperCase().replace(/\s+/g, ' ');
@@ -266,14 +265,17 @@ function Match() {
                 Your Address: <span className="dim">{addressMock}</span>
               </div>
             </div>
+            <div className="logo-small">
+              <img className="logo-small" src="/Logos.png" alt="Soccer fans celebrating" />
+            </div>
 
             <div className="arena__topbarRight">
               <div className="arena__statPill">{prizeTopRight}</div>
               <div className="arena__statPill">
                 Pos: <b>{positionMock}</b> · Points: <b>{pointsMock}</b>
               </div>
-             
-                <StyledWallet/>
+
+              <Header />
             </div>
           </header>
 

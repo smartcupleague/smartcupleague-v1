@@ -3,10 +3,10 @@ import './my-predictions.css';
 import { useAccount, useAlert, useApi } from '@gear-js/react-hooks';
 import { web3Enable, web3FromSource } from '@polkadot/extension-dapp';
 import { Program, Service } from '@/hocs/lib';
-import { Wallet } from '@gear-js/wallet-connect';
 import { TransactionBuilder } from 'sails-js';
 import { TEAM_FLAGS } from '@/utils/teams';
 import { StyledWallet } from '../wallet/Wallet';
+import { Header } from '../layout';
 
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM;
 
@@ -147,7 +147,7 @@ function getCurrentScore(result?: any): { home: number; away: number; tag: 'OPEN
   }
   if (result.proposed?.score) {
     const s = result.proposed.score;
-    return { home: Number(s.home ?? 0) || 0, away: Number(s.away ?? 0) || 0, tag: 'LIVE' };
+    return { home: Number(s.proposed?.home ?? 0) || 0, away: Number(s.proposed?.away ?? 0) || 0, tag: 'LIVE' };
   }
 
   return { home: 0, away: 0, tag: 'OPEN' };
@@ -289,7 +289,7 @@ export const QueryBetsByUserComponent: React.FC = () => {
         claimed: !!v?.claimed,
       }));
 
-      parsed.sort((a: ContractUserBetView, b: ContractUserBetView) => Number(b.match_id) - Number(a.match_id));
+      parsed.sort((a, b) => Number(b.match_id) - Number(a.match_id));
       setBets(parsed);
     } catch (err) {
       console.error('Failed to fetch Predictions:', err);
@@ -370,21 +370,19 @@ export const QueryBetsByUserComponent: React.FC = () => {
       <div className="mpBg" aria-hidden="true" />
 
       <header className="mpTop">
-        <div className="mpTop__row">
-          <div className="mpTitle">
+        <div className="mpTop__row mpTop__row--walletSafe">
+          <div className="mpTitle mpTitle--shrink">
             <h1>My Predictions</h1>
             <p>Potential Winnings is an estimate and becomes exact once the match is finalized + settled.</p>
           </div>
-
-          <div className="mpTop__right">
-            <StyledWallet />
-          </div>
+          <Header />
         </div>
 
         <div className="mpTabs">
           <button className={'mpTab ' + (tab === 'wc' ? 'is-active' : '')} onClick={() => setTab('wc')} type="button">
             World Cup 2026
           </button>
+
           <div className="mpSearch">
             <span className="mpSearch__icon" aria-hidden="true">
               ⌕
@@ -502,7 +500,6 @@ export const QueryBetsByUserComponent: React.FC = () => {
                         : 0n;
 
                     const realHuman = Number(formatAmount(realBn, 12));
-
                     const potentialBefore = matchPoolBn > 0n ? matchPoolBn : 0n;
                     const potentialText = potentialBefore > 0n ? `${formatAmount(potentialBefore, 12)}` : '—';
 
