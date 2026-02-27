@@ -14,21 +14,21 @@ interface NavItem {
 const navItems: NavItem[] = [
   {
     key: 'home',
-    label: 'Home',
+    label: 'My Progres',
     path: '/home',
-    icon: <span className="scb-icon">🏠</span>,
-  },
-  {
-    key: 'my-predictions',
-    label: 'My Predictions',
-    path: '/my-predictions',
-    icon: <span className="scb-icon">🎯</span>,
+    icon: <span className="scb-icon">🏆</span>,
   },
   {
     key: 'leaderboards',
     label: 'Leaderboards',
     path: '/leaderboards',
     icon: <span className="scb-icon">🏅</span>,
+  },
+  {
+    key: 'my-predictions',
+    label: 'My Predictions',
+    path: '/my-predictions',
+    icon: <span className="scb-icon">🎯</span>,
   },
   {
     key: 'all-predictions',

@@ -5,27 +5,29 @@ import { web3Enable, web3FromSource } from '@polkadot/extension-dapp';
 import { Program, Service } from '@/hocs/lib';
 import { TransactionBuilder } from 'sails-js';
 import { useToast } from '@/hooks/useToast';
-import "./matchcard.css"
+import './matchcard.css';
+import { HexString } from '@gear-js/api';
+import { TEAM_FLAGS } from '@/utils/teams';
 
-const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM;
+const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as string;
 
-type Outcome = 'Home' | 'Draw' | 'Away';
-
-type ResultStatus =
-  | { Unresolved: null }
-  | { Proposed: { outcome: Outcome; oracle: string } }
-  | { Finalized: { outcome: Outcome } };
+type Score = { home: number; away: number };
+type ResultStatus = any;
 
 type MatchInfo = {
   match_id: string;
   phase: string;
   home: string;
   away: string;
-  kick_off: string; // ms
+  kick_off: string;
   result: ResultStatus;
-  pool_home: string;
-  pool_draw: string;
-  pool_away: string;
+  match_prize_pool?: string;
+  total_winner_stake?: string;
+  settlement_prepared?: boolean;
+  pool_home?: string;
+  pool_draw?: string;
+  pool_away?: string;
+
   has_bets: boolean;
   participants: string[];
 };
@@ -34,23 +36,50 @@ type IoBolaoState = {
   matches: MatchInfo[];
 };
 
-type OddRow = {
-  result: string;
-  odd: number | string;
-  payout: number | string;
-};
-
 export interface MatchCardProps {
   id: string;
-  flag1: string;
-  flag2: string;
+  flag1?: string;
+  flag2?: string;
+  currentScore?: { home: number; away: number };
+  currentScoreText?: string;
 }
 
 type BetCurrency = 'VARA' | 'wUSDC' | 'wUSDT';
 
-function formatKickoffMs(msString: string) {
-  const ms = Number(msString);
-  if (!ms || Number.isNaN(ms)) return '—';
+const VARA_DECIMALS = 12n;
+const VARA_PLANCK = 10n ** VARA_DECIMALS;
+
+const PROTOCOL_FEE_BPS = 500n;
+const FINAL_PRIZE_BPS = 2000n;
+const BPS_DEN = 10_000n;
+
+type PenaltyWinnerArg = { Home: null } | { Away: null };
+type MaybePenaltyWinnerArg = PenaltyWinnerArg | null;
+
+function normalizeTeamKey(team: string) {
+  return (team || '').trim().toUpperCase().replace(/\s+/g, ' ');
+}
+
+function flagForTeam(teamName: string) {
+  const key = normalizeTeamKey(teamName);
+  return TEAM_FLAGS[key] || '/flags/default.png';
+}
+
+function resolveFlagFromPropsOrTeam(flagProp: string | undefined, teamName: string): string {
+  const raw = (flagProp || '').trim();
+  if (raw) return raw;
+  return flagForTeam(teamName);
+}
+
+function kickOffToMs(kickOff: string): number {
+  const n = Number(kickOff);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return n < 10_000_000_000 ? n * 1000 : n;
+}
+
+function formatKickoffMs(kickOffString: string) {
+  const ms = kickOffToMs(kickOffString);
+  if (!ms) return '—';
   return new Date(ms).toLocaleString(undefined, {
     year: '2-digit',
     month: 'short',
@@ -60,108 +89,162 @@ function formatKickoffMs(msString: string) {
   });
 }
 
-function statusLabel(result: ResultStatus) {
-  if ('Unresolved' in result) return 'Open';
-  if ('Proposed' in result) return `Proposed (${result.Proposed.outcome})`;
-  if ('Finalized' in result) return `Finalized (${result.Finalized.outcome})`;
-  return 'Unknown';
+function isFinalizedResult(result: any): boolean {
+  return !!(result?.Finalized || result?.finalized);
 }
 
-function totalPool(m: MatchInfo) {
-  return Number(m.pool_home) + Number(m.pool_draw) + Number(m.pool_away);
-}
+function getResultDetails(result: any): {
+  home: number;
+  away: number;
+  tag: 'OPEN' | 'LIVE' | 'FINAL';
+  penaltyWinner: string | null;
+} {
+  if (!result) return { home: 0, away: 0, tag: 'OPEN', penaltyWinner: null };
 
-function safeDiv(n: number, d: number) {
-  return d === 0 ? 0 : n / d;
-}
-
-function buildOddsFromPools(m: MatchInfo): OddRow[] {
-  const t = totalPool(m);
-  const homeOdd = m.pool_home === '0' ? 0 : safeDiv(t, Number(m.pool_home));
-  const drawOdd = m.pool_draw === '0' ? 0 : safeDiv(t, Number(m.pool_draw));
-  const awayOdd = m.pool_away === '0' ? 0 : safeDiv(t, Number(m.pool_away));
-
-  return [
-    { result: m.home, odd: Number(homeOdd.toFixed(2)), payout: Number(homeOdd.toFixed(2)) },
-    { result: 'Draw', odd: Number(drawOdd.toFixed(2)), payout: Number(drawOdd.toFixed(2)) },
-    { result: m.away, odd: Number(awayOdd.toFixed(2)), payout: Number(awayOdd.toFixed(2)) },
-  ];
-}
-
-const FLAG_MAP: Record<string, string> = {
-  qatar: '/images/flag_qatar.jpg',
-  ecuador: '/images/flag_ecuador.jpg',
-  england: '/images/flag_england.jpg',
-  iran: '/images/flag_iran.jpg',
-  argentina: '/images/flag_argentina.jpg',
-  saudi_arabia: '/images/flag_saudi_arabia.jpg',
-};
-
-function resolveFlag(flag: string): string {
-  const raw = (flag || '').trim();
-  if (!raw) return '';
-  const key = raw.toLowerCase();
-
-  if (
-    key.startsWith('http://') ||
-    key.startsWith('https://') ||
-    key.startsWith('/') ||
-    key.includes('.png') ||
-    key.includes('.jpg') ||
-    key.includes('.jpeg') ||
-    key.includes('.webp')
-  ) {
-    return raw;
+  if (result.Finalized?.score) {
+    const s = result.Finalized.score;
+    return { home: Number(s.home ?? 0) || 0, away: Number(s.away ?? 0) || 0, tag: 'FINAL', penaltyWinner: null };
+  }
+  if (result.Proposed?.score) {
+    const s = result.Proposed.score;
+    return { home: Number(s.home ?? 0) || 0, away: Number(s.away ?? 0) || 0, tag: 'LIVE', penaltyWinner: null };
+  }
+  if (result.finalized?.score) {
+    const s = result.finalized.score;
+    return {
+      home: Number(s.home ?? 0) || 0,
+      away: Number(s.away ?? 0) || 0,
+      tag: 'FINAL',
+      penaltyWinner: result.finalized?.penalty_winner ?? null,
+    };
+  }
+  if (result.proposed?.score) {
+    const s = result.proposed.score;
+    return { home: Number(s.home ?? 0) || 0, away: Number(s.away ?? 0) || 0, tag: 'LIVE', penaltyWinner: null };
   }
 
-  return FLAG_MAP[key] || '';
+  if (result.Unresolved || result.unresolved) return { home: 0, away: 0, tag: 'OPEN', penaltyWinner: null };
+  return { home: 0, away: 0, tag: 'OPEN', penaltyWinner: null };
 }
 
-const OddsTable: React.FC<{
-  rows: OddRow[];
-  selected: Outcome | null;
-  onPick: (o: Outcome) => void;
-  disabled: boolean;
-}> = ({ rows, selected, onPick, disabled }) => {
-  const outcomes: Outcome[] = ['Home', 'Draw', 'Away'];
+function statusLabel(result: any) {
+  const r = getResultDetails(result);
+  if (r.tag === 'OPEN') return 'Open';
+  if (r.tag === 'LIVE') return `Live (${r.home}-${r.away})`;
+  return `Final (${r.home}-${r.away})`;
+}
 
-  return (
-    <div className="odds-table">
-      <div className="odds-table__header">
-        <div>Result</div>
-        <div style={{ textAlign: 'center' }}>Estimated Odds</div>
-        <div style={{ textAlign: 'right' }}>Pick</div>
-      </div>
+function totalPoolPlanck(m: MatchInfo): bigint {
+  if (m.match_prize_pool != null) {
+    try {
+      return BigInt(String(m.match_prize_pool));
+    } catch {
+      /* ignore */
+    }
+  }
+  try {
+    const h = BigInt(String(m.pool_home ?? '0'));
+    const d = BigInt(String(m.pool_draw ?? '0'));
+    const a = BigInt(String(m.pool_away ?? '0'));
+    return h + d + a;
+  } catch {
+    return 0n;
+  }
+}
 
-      {rows.map((r, idx) => {
-        const outcome = outcomes[idx];
-        const isSel = selected === outcome;
+function planckToVaraHuman(planck: bigint): number {
+  return Number(planck) / 1_000_000_000_000;
+}
 
-        return (
-          <div className="odds-table__row" key={`${r.result}-${idx}`}>
-            <div className="odds-table__result">{r.result}</div>
-            <div style={{ textAlign: 'center', fontWeight: 700 }}>{r.odd}</div>
-            <div style={{ textAlign: 'right' }}>
-              <button
-                className="bet-button"
-                disabled={disabled}
-                onClick={() => onPick(outcome)}
-                style={{
-                  background: isSel ? 'var(--maroon-light)' : 'var(--accent)',
-                  opacity: disabled ? 0.55 : 1,
-                }}
-              >
-                {isSel ? 'Selected' : 'Choose'}
-              </button>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-};
+function toPlanck(amount: number): bigint {
+  const fixed = amount.toFixed(12);
+  const [i, f = ''] = fixed.split('.');
+  const frac = (f + '0'.repeat(12)).slice(0, 12);
+  return BigInt(i || '0') * VARA_PLANCK + BigInt(frac || '0');
+}
 
-export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2 }) => {
+function clampScore(n: unknown) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return 0;
+  return Math.max(0, Math.min(20, Math.trunc(v)));
+}
+
+function clampPenalties(n: unknown) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return 0;
+  return Math.max(0, Math.min(10, Math.trunc(v)));
+}
+
+type ScoreText = { home: string; away: string };
+
+function normalizeCurrentScore(
+  currentScore?: { home: number; away: number },
+  currentScoreText?: string,
+): { home: number; away: number; text: string } {
+  if (currentScore && Number.isFinite(currentScore.home) && Number.isFinite(currentScore.away)) {
+    const h = Number(currentScore.home) || 0;
+    const a = Number(currentScore.away) || 0;
+    return { home: h, away: a, text: `${h}-${a}` };
+  }
+
+  if (typeof currentScoreText === 'string' && currentScoreText.trim()) {
+    const m = currentScoreText.trim().match(/^(\d+)\s*-\s*(\d+)$/);
+    if (m) return { home: Number(m[1]), away: Number(m[2]), text: `${Number(m[1])}-${Number(m[2])}` };
+    return { home: 0, away: 0, text: currentScoreText.trim() };
+  }
+
+  return { home: 0, away: 0, text: '0-0' };
+}
+
+function toBnSafe(v: any): bigint {
+  try {
+    if (typeof v === 'bigint') return v;
+    return BigInt(String(v ?? '0'));
+  } catch {
+    return 0n;
+  }
+}
+
+function computeShareBn(stake: bigint, matchPrizePool: bigint, totalWinnerStake: bigint): bigint {
+  if (stake <= 0n || matchPrizePool <= 0n || totalWinnerStake <= 0n) return 0n;
+  return (stake * matchPrizePool) / totalWinnerStake;
+}
+
+function formatVaraFromPlanck(planck: bigint) {
+  const s = planck.toString().padStart(13, '0');
+  const intPart = s.slice(0, -12);
+  const frac = s.slice(-12).replace(/0+$/, '');
+  return frac ? `${intPart}.${frac}` : intPart;
+}
+
+function normalizeAmountInput(v: string) {
+  const s = String(v ?? '')
+    .replace(',', '.')
+    .replace(/[^\d.]/g, '');
+  const parts = s.split('.');
+  if (parts.length <= 1) return s;
+  return `${parts[0]}.${parts.slice(1).join('')}`;
+}
+
+function isKnockoutPhase(phase?: string): boolean {
+  const p = String(phase ?? '')
+    .trim()
+    .toLowerCase();
+  if (!p) return false;
+
+  if (p.includes('group')) return false;
+
+  const koHints = ['round of', 'r16', 'r32', 'quarter', 'semi', 'final', 'knockout', 'playoff', 'bracket', 'qf', 'sf'];
+  return koHints.some((k) => p.includes(k));
+}
+
+function deducePenaltyWinnerArg(pens: Score): MaybePenaltyWinnerArg {
+  if (pens.home > pens.away) return { Home: null };
+  if (pens.away > pens.home) return { Away: null };
+  return null;
+}
+
+export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentScore, currentScoreText }) => {
   const navigate = useNavigate();
   const { account } = useAccount();
   const toast = useToast();
@@ -170,35 +253,78 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2 }) => {
   const [state, setState] = useState<IoBolaoState | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [selected, setSelected] = useState<Outcome | null>(null);
-  const [txLoading, setTxLoading] = useState(false);
+  const [selectedScore, setSelectedScore] = useState<Score>({ home: 0, away: 0 });
+  const [penalties, setPenalties] = useState<Score>({ home: 0, away: 0 });
 
-  // ✅ NUEVO: monto + moneda
+  const [selectedScoreTextState, setSelectedScoreTextState] = useState<ScoreText>({ home: '0', away: '0' });
+  const [penaltiesTextState, setPenaltiesTextState] = useState<ScoreText>({ home: '0', away: '0' });
+
+  const [txLoadingBet, setTxLoadingBet] = useState(false);
+  const [txLoadingClaim, setTxLoadingClaim] = useState(false);
+
   const [betAmount, setBetAmount] = useState<string>('10');
   const [betCurrency, setBetCurrency] = useState<BetCurrency>('VARA');
+
+  const [userStakeBn, setUserStakeBn] = useState<bigint>(0n);
+  const [userClaimed, setUserClaimed] = useState<boolean>(false);
+  const [loadingUserBet, setLoadingUserBet] = useState<boolean>(false);
+
+  const matchId = useMemo(() => String(id ?? '').trim(), [id]);
 
   const betAmountNumber = useMemo(() => {
     const n = Number(String(betAmount).replace(',', '.'));
     return Number.isFinite(n) ? n : 0;
   }, [betAmount]);
 
-  const betDisabledByAmount = !betAmount || betAmountNumber <= 0;
+  const betDisabledByAmount = betAmountNumber <= 0;
 
-  const leftFlagSrc = useMemo(() => resolveFlag(flag1), [flag1]);
-  const rightFlagSrc = useMemo(() => resolveFlag(flag2), [flag2]);
+  const shownScore = useMemo(
+    () => normalizeCurrentScore(currentScore, currentScoreText),
+    [currentScore, currentScoreText],
+  );
 
   useEffect(() => {
     void web3Enable('Vara Bolao MatchCard');
   }, []);
 
   const fetchState = useCallback(async () => {
-    if (!api || !isApiReady) return;
+    if (!api || !isApiReady) {
+      setLoading(true);
+      return;
+    }
+
     setLoading(true);
     try {
-      const svc = new Service(new Program(api, PROGRAM_ID));
-      const s = (await svc.queryState()) as IoBolaoState;
-      setState(s);
-    } catch {
+      const svc = new Service(new Program(api, PROGRAM_ID as HexString));
+      const s = (await (svc as any).queryState()) as any;
+
+      const normalized: IoBolaoState = {
+        matches: Array.isArray(s?.matches)
+          ? s.matches.map((m: any) => ({
+              match_id: String(m?.match_id ?? ''),
+              phase: String(m?.phase ?? ''),
+              home: String(m?.home ?? ''),
+              away: String(m?.away ?? ''),
+              kick_off: String(m?.kick_off ?? '0'),
+
+              match_prize_pool: m?.match_prize_pool != null ? String(m.match_prize_pool) : undefined,
+              total_winner_stake: m?.total_winner_stake != null ? String(m.total_winner_stake) : undefined,
+              settlement_prepared: m?.settlement_prepared != null ? Boolean(m.settlement_prepared) : undefined,
+
+              pool_home: m?.pool_home != null ? String(m.pool_home) : '0',
+              pool_draw: m?.pool_draw != null ? String(m.pool_draw) : '0',
+              pool_away: m?.pool_away != null ? String(m.pool_away) : '0',
+
+              has_bets: Boolean(m?.has_bets),
+              participants: Array.isArray(m?.participants) ? m.participants : [],
+              result: m?.result ?? null,
+            }))
+          : [],
+      };
+
+      setState(normalized);
+    } catch (e) {
+      console.error('fetchState error', e);
       setState(null);
     } finally {
       setLoading(false);
@@ -210,34 +336,142 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2 }) => {
   }, [fetchState]);
 
   const match = useMemo(() => {
-    if (!state?.matches || !id) return null;
-    return state.matches.find((m) => String(m.match_id) === String(id)) || null;
-  }, [state, id]);
-
-  const oddsRows = useMemo(() => (match ? buildOddsFromPools(match) : []), [match]);
+    if (!state?.matches || !matchId) return null;
+    const idNorm = String(matchId).trim();
+    return state.matches.find((m) => String(m.match_id).trim() === idNorm) || null;
+  }, [state, matchId]);
 
   const isBeforeKickoff = useMemo(() => {
     if (!match) return false;
-    return Number(match.kick_off) > Date.now(); // ms
+    return kickOffToMs(match.kick_off) > Date.now();
   }, [match]);
 
-  // ✅ Convertir VARA (decimal) a planck (1e12)
-  const VARA_DECIMALS = 12n;
-  const toPlanck = (amount: number): bigint => {
-    // Evita floats raros: convertimos a string con 12 decimales y lo parseamos
-    const fixed = amount.toFixed(12); // "10.000000000000"
-    const [i, f = ''] = fixed.split('.');
-    const frac = (f + '0'.repeat(12)).slice(0, 12);
-    return BigInt(i || '0') * 10n ** VARA_DECIMALS + BigInt(frac || '0');
+  const isKnockout = useMemo(() => isKnockoutPhase(match?.phase), [match?.phase]);
+
+  const chainResult = useMemo(() => getResultDetails(match?.result), [match?.result]);
+
+  const isFinalized = useMemo(() => {
+    if (!match?.result) return false;
+    return isFinalizedResult(match.result);
+  }, [match?.result]);
+
+  const fetchUserBetForMatch = useCallback(async () => {
+    if (!api || !isApiReady || !account || !matchId) return;
+
+    setLoadingUserBet(true);
+    try {
+      const svc = new Service(new Program(api, PROGRAM_ID as HexString));
+      const bets = (await (svc as any).queryBetsByUser(account.decodedAddress)) as any[];
+
+      const b = Array.isArray(bets) ? bets.find((x) => String(x?.match_id) === String(matchId)) : null;
+
+      if (!b) {
+        setUserStakeBn(0n);
+        setUserClaimed(false);
+        return;
+      }
+
+      const stake = toBnSafe(b?.stake_in_match_pool ?? 0);
+      const claimed = typeof b?.claimed === 'boolean' ? b.claimed : false;
+
+      setUserStakeBn(stake);
+      setUserClaimed(claimed);
+    } catch (e) {
+      console.error('fetchUserBetForMatch error', e);
+      setUserStakeBn(0n);
+      setUserClaimed(false);
+    } finally {
+      setLoadingUserBet(false);
+    }
+  }, [api, isApiReady, account, matchId]);
+
+  useEffect(() => {
+    void fetchUserBetForMatch();
+  }, [fetchUserBetForMatch]);
+
+  const isDraw = selectedScore.home === selectedScore.away;
+
+  useEffect(() => {
+    if (!isDraw) {
+      setPenalties({ home: 0, away: 0 });
+      setPenaltiesTextState({ home: '0', away: '0' });
+    }
+  }, [isDraw]);
+
+  const onFocusZeroToBlank = (getter: () => string, setter: (v: string) => void) => {
+    const v = getter();
+    if (v === '0') setter('');
   };
 
-  const handleBet = useCallback(async () => {
+  const onBlurBlankToZero = (getter: () => string, setter: (v: string) => void) => {
+    const v = getter().trim();
+    if (v === '') setter('0');
+  };
+
+  const predictedPenaltyWinnerArg = useMemo<MaybePenaltyWinnerArg>(() => {
+    if (!isDraw) return null;
+    if (!isKnockout) return null;
+    return deducePenaltyWinnerArg(penalties);
+  }, [isDraw, isKnockout, penalties]);
+
+  const canBet = useMemo(() => {
+    if (!match) return false;
+    if (isFinalized) return false;
+    if (!isBeforeKickoff) return false;
+    if (betDisabledByAmount) return false;
+
+    if (isDraw && isKnockout && predictedPenaltyWinnerArg === null) return false;
+
+    return true;
+  }, [match, isFinalized, isBeforeKickoff, betDisabledByAmount, isDraw, isKnockout, predictedPenaltyWinnerArg]);
+
+  const settlementPrepared = !!match?.settlement_prepared;
+  const matchPrizePoolBn = useMemo(() => toBnSafe(match?.match_prize_pool ?? 0), [match?.match_prize_pool]);
+  const totalWinnerStakeBn = useMemo(() => toBnSafe(match?.total_winner_stake ?? 0), [match?.total_winner_stake]);
+
+  const claimableBn = useMemo(() => {
+    if (!match) return 0n;
+    if (!isFinalized) return 0n;
+    if (!settlementPrepared) return 0n;
+    if (userClaimed) return 0n;
+    return computeShareBn(userStakeBn, matchPrizePoolBn, totalWinnerStakeBn);
+  }, [match, isFinalized, settlementPrepared, userClaimed, userStakeBn, matchPrizePoolBn, totalWinnerStakeBn]);
+
+  const showClaimButton = useMemo(() => {
+    if (!account) return false;
+    if (!match) return false;
+    if (!isFinalized) return false;
+    if (!settlementPrepared) return false;
+    if (loadingUserBet) return false;
+    return claimableBn > 0n;
+  }, [account, match, isFinalized, settlementPrepared, loadingUserBet, claimableBn]);
+
+  const betValueBn = useMemo(
+    () => (betCurrency === 'VARA' ? toPlanck(betAmountNumber) : 0n),
+    [betCurrency, betAmountNumber],
+  );
+  const feeProtocolBn = useMemo(() => (betValueBn * PROTOCOL_FEE_BPS) / BPS_DEN, [betValueBn]);
+  const feeFinalBn = useMemo(() => (betValueBn * FINAL_PRIZE_BPS) / BPS_DEN, [betValueBn]);
+
+  const stakeInMatchPoolBn = useMemo(() => {
+    if (betValueBn <= 0n) return 0n;
+    const cut = betValueBn - feeProtocolBn - feeFinalBn; // 75%
+    return cut > 0n ? cut : 0n;
+  }, [betValueBn, feeProtocolBn, feeFinalBn]);
+
+  const poolAfterBn = useMemo(() => matchPrizePoolBn + stakeInMatchPoolBn, [matchPrizePoolBn, stakeInMatchPoolBn]);
+  const maxPayoutBn = poolAfterBn;
+  const maxProfitBn = maxPayoutBn > betValueBn ? maxPayoutBn - betValueBn : 0n;
+  const showToWin = useMemo(() => betCurrency === 'VARA' && betValueBn > 0n, [betCurrency, betValueBn]);
+
+  const handlePlaceBet = useCallback(async () => {
     if (!match) return;
 
-    if (!selected) {
-      toast.error('Please select a result');
+    if (isFinalized) {
+      toast.error(`This match has ended. Final score: ${chainResult.home}-${chainResult.away}`);
       return;
     }
+
     if (!account) {
       toast.error('Please connect your wallet');
       return;
@@ -250,25 +484,48 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2 }) => {
       toast.error('Betting is closed (kick-off time has passed)');
       return;
     }
-    if (!betAmountNumber || betAmountNumber <= 0) {
+    if (betAmountNumber <= 0) {
       toast.error('Enter a valid bet amount');
       return;
     }
 
-    try {
-      setTxLoading(true);
+    const h = clampScore(selectedScore.home);
+    const a = clampScore(selectedScore.away);
 
-      const svc = new Service(new Program(api, PROGRAM_ID));
-      const tx: TransactionBuilder<unknown> = svc.bet(BigInt(match.match_id), selected);
+    const drawPredicted = h === a;
+
+    let penaltyWinnerToSend: MaybePenaltyWinnerArg = null;
+
+    if (drawPredicted && isKnockout) {
+      const pensH = clampPenalties(penalties.home);
+      const pensA = clampPenalties(penalties.away);
+
+      const arg = deducePenaltyWinnerArg({ home: pensH, away: pensA });
+      if (!arg) {
+        toast.error('In penalties there must be a winner (no tie).');
+        return;
+      }
+      penaltyWinnerToSend = arg;
+    } else {
+      penaltyWinnerToSend = null;
+    }
+
+    try {
+      setTxLoadingBet(true);
+
+      const svc = new Service(new Program(api, PROGRAM_ID as HexString));
+
+      const tx: TransactionBuilder<unknown> = (svc as any).placeBet(
+        BigInt(match.match_id),
+        { home: h, away: a },
+        penaltyWinnerToSend,
+      );
 
       const { signer } = await web3FromSource(account.meta.source);
 
       if (betCurrency === 'VARA') {
-        // ✅ En VARA sí usamos value
         tx.withAccount(account.decodedAddress, { signer }).withValue(toPlanck(betAmountNumber));
       } else {
-        // ⚠️ Normalmente para wUSDC/wUSDT se requiere otro flujo (approve/transfer)
-        // Dejo el tx sin value y aviso.
         tx.withAccount(account.decodedAddress, { signer }).withValue(0n);
         toast.info(`Selected ${betCurrency}. You may need an ERC20-like approve/transfer flow.`);
       }
@@ -276,55 +533,151 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2 }) => {
       await tx.calculateGas();
       const { blockHash, response } = await tx.signAndSend();
 
-      toast.info(`Transaction included in block ${blockHash}`);
+      toast.info(`Bet included in block ${blockHash}`);
       await response();
-      toast.success('Prediction placed successfully ✅');
+      toast.success('Bet placed successfully ✅');
 
-      setSelected(null);
-      setTimeout(fetchState, 900);
-    } catch {
-      toast.error('Prediction failed');
+      setTimeout(() => {
+        void fetchState();
+        void fetchUserBetForMatch();
+      }, 900);
+    } catch (e) {
+      console.error(e);
+      toast.error('Bet failed');
     } finally {
-      setTxLoading(false);
+      setTxLoadingBet(false);
     }
   }, [
     match,
-    selected,
+    isFinalized,
+    chainResult.home,
+    chainResult.away,
     account,
     api,
     isApiReady,
     isBeforeKickoff,
-    toast,
-    fetchState,
     betAmountNumber,
     betCurrency,
+    selectedScore.home,
+    selectedScore.away,
+    penalties.home,
+    penalties.away,
+    toast,
+    fetchState,
+    fetchUserBetForMatch,
+    isKnockout,
   ]);
 
-  const disabledPick = txLoading || !isBeforeKickoff;
+  const handleClaim = useCallback(async () => {
+    if (!match) return;
+
+    if (!account) {
+      toast.error('Please connect your wallet');
+      return;
+    }
+    if (!api || !isApiReady) {
+      toast.error('Node API is not ready');
+      return;
+    }
+    if (!isFinalizedResult(match.result)) {
+      toast.error('Match is not finalized yet');
+      return;
+    }
+    if (!match.settlement_prepared) {
+      toast.error('Settlement not prepared yet');
+      return;
+    }
+    if (claimableBn <= 0n) {
+      toast.error('No claimable balance for this match');
+      return;
+    }
+
+    try {
+      setTxLoadingClaim(true);
+
+      const svc = new Service(new Program(api, PROGRAM_ID as HexString));
+      const tx: TransactionBuilder<unknown> = (svc as any).claimMatchReward(BigInt(match.match_id));
+
+      const { signer } = await web3FromSource(account.meta.source);
+      tx.withAccount(account.decodedAddress, { signer }).withValue(0n);
+
+      await tx.calculateGas();
+      const { blockHash, response } = await tx.signAndSend();
+
+      toast.info(`Claim included in block ${blockHash}`);
+      await response();
+      toast.success('Reward claimed ✅');
+
+      setTimeout(() => {
+        void fetchState();
+        void fetchUserBetForMatch();
+      }, 900);
+    } catch (e) {
+      console.error(e);
+      toast.error('Claim failed');
+    } finally {
+      setTxLoadingClaim(false);
+    }
+  }, [match, account, api, isApiReady, toast, fetchState, fetchUserBetForMatch, claimableBn]);
+
+  const sincePredictedTop = useMemo(() => {
+    if (!match) return 'Since predicted: —';
+    return `Since predicted: ${match.home.toUpperCase()} ${selectedScore.home} - ${selectedScore.away} ${match.away.toUpperCase()}`;
+  }, [match, selectedScore.home, selectedScore.away]);
+
+  const resultLine = useMemo(() => {
+    if (!match) return '—';
+    if (!isDraw)
+      return `${match.home.toUpperCase()} ${selectedScore.home} - ${selectedScore.away} ${match.away.toUpperCase()}`;
+
+    if (isKnockout) {
+      const arg = predictedPenaltyWinnerArg;
+      const winner = arg && 'Home' in arg ? match.home : arg && 'Away' in arg ? match.away : '—';
+      if (winner !== '—') {
+        return `${match.home.toUpperCase()} ${selectedScore.home} - ${selectedScore.away} ${match.away.toUpperCase()} (${winner} wins on penalties)`;
+      }
+    }
+
+    return `${match.home.toUpperCase()} ${selectedScore.home} - ${selectedScore.away} ${match.away.toUpperCase()}`;
+  }, [match, isDraw, selectedScore.home, selectedScore.away, isKnockout, predictedPenaltyWinnerArg]);
+
+  const finalizedMessage = useMemo(() => {
+    if (!match || !isFinalized) return '';
+    const base = `This match has ended. Final score: ${chainResult.home}-${chainResult.away}.`;
+    if (chainResult.penaltyWinner) return `${base} Penalty winner: ${chainResult.penaltyWinner}.`;
+    return base;
+  }, [match, isFinalized, chainResult.home, chainResult.away, chainResult.penaltyWinner]);
+
+  const leftFlagSrc = useMemo(
+    () => (match ? resolveFlagFromPropsOrTeam(flag1, match.home) : (flag1 || '').trim()),
+    [flag1, match],
+  );
+  const rightFlagSrc = useMemo(
+    () => (match ? resolveFlagFromPropsOrTeam(flag2, match.away) : (flag2 || '').trim()),
+    [flag2, match],
+  );
 
   if (loading) {
     return (
-      <section className="match-card">
-        <div className="match-card__header">
-          <span className="match-tag">Loading match…</span>
+      <section className="mcx">
+        <div className="mcx__header">
+          <div className="mcx__phase">Loading…</div>
         </div>
-        <div className="match-card__content" style={{ opacity: 0.9, fontSize: 13 }}>
-          Fetching contract state…
-        </div>
+        <div className="mcx__body dim">Fetching contract state…</div>
       </section>
     );
   }
 
-  if (!id) {
+  if (!matchId || !match) {
     return (
-      <section className="match-card">
-        <div className="match-card__header">
-          <span className="match-tag">Invalid match id</span>
+      <section className="mcx">
+        <div className="mcx__header">
+          <div className="mcx__phase">Match not found</div>
         </div>
-        <div className="match-card__content">
-          <div style={{ fontSize: 13, opacity: 0.9 }}>Missing match id.</div>
-          <div className="match-card__footer">
-            <button className="back-button" onClick={() => navigate(-1)}>
+        <div className="mcx__body dim">
+          The selected match does not exist. (id: <b>{matchId || '—'}</b>)
+          <div style={{ marginTop: 12 }}>
+            <button className="mcx__ghostBtn" onClick={() => navigate(-1)}>
               Back
             </button>
           </div>
@@ -333,122 +686,331 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2 }) => {
     );
   }
 
-  if (!match) {
-    return (
-      <section className="match-card">
-        <div className="match-card__header">
-          <span className="match-tag">Match not found</span>
-        </div>
-        <div className="match-card__content">
-          <div style={{ fontSize: 13, opacity: 0.9 }}>No match exists with id: {id}</div>
-          <div className="match-card__footer">
-            <button className="back-button" onClick={() => navigate(-1)}>
-              Back
-            </button>
-          </div>
-        </div>
-      </section>
-    );
-  }
+  const poolVara = planckToVaraHuman(totalPoolPlanck(match));
+  const topScoreHome = isFinalized ? chainResult.home : shownScore.home;
+  const topScoreAway = isFinalized ? chainResult.away : shownScore.away;
 
   return (
-    <section className="match-card">
-      <div className="match-card__header">
-        <span className="match-tag">
-          Match #{match.match_id} · {match.phase} · {statusLabel(match.result)}
-        </span>
+    <section className="mcx">
+      <img className="mcx__trophy" src="/images/WorldCupTrophy_PNG.png" alt="World Cup Trophy" />
+
+      <div className="mcx__header">
+        <div className="mcx__phase">{match.phase || 'Group Stage'}</div>
       </div>
 
-      <div className="match-card__content">
-        {/* Teams */}
-        <div className="teams-row">
-          <div className="team">
-            <div className="team-flag">🏟️</div>
-            <div className="team-name">{match.home}</div>
-            {leftFlagSrc ? <img className="logo-small" src={leftFlagSrc} alt={`${match.home} flag`} /> : null}
-          </div>
-
-          <div className="result-column">
-            <span className="result-label">KICK-OFF</span>
-            <div className="result-scores">
-              <span className="score-badge" style={{ fontSize: 12 }}>
-                {formatKickoffMs(match.kick_off)}
-              </span>
-            </div>
-          </div>
-
-          <div className="team">
-            <div className="team-flag">🏟️</div>
-            <div className="team-name">{match.away}</div>
-            {rightFlagSrc ? <img className="logo-small" src={rightFlagSrc} alt={`${match.away} flag`} /> : null}
-          </div>
+      <div className="mcx__scoreTop">
+        <div className="mcx__side">
+          {leftFlagSrc ? <img className="mcx__flagLg" src={leftFlagSrc} alt={`${match.home} flag`} /> : null}
+          <div className="mcx__teamLbl">{match.home.toUpperCase()}</div>
         </div>
 
-        <OddsTable rows={oddsRows} selected={selected} onPick={setSelected} disabled={disabledPick} />
-
-        {/* ✅ NUEVO: Input + Select atractivo dentro del card */}
-        <div className="betbar">
-          <div className="betbar__label">Bet amount</div>
-
-          <div className="betbar__controls">
-            <div className="bet-amount">
-              <span className="bet-amount__prefix">$</span>
-              <input
-                className="bet-amount__input"
-                inputMode="decimal"
-                value={betAmount}
-                onChange={(e) => setBetAmount(e.target.value)}
-                placeholder="10"
-                disabled={txLoading}
-              />
-            </div>
-
-            <select
-              className="bet-currency"
-              value={betCurrency}
-              onChange={(e) => setBetCurrency(e.target.value as BetCurrency)}
-              disabled={txLoading}
-            >
-              <option value="VARA">VARA</option>
-              <option value="wUSDC">wUSDC</option>
-              <option value="wUSDT">wUSDT</option>
-            </select>
-
-            <div className="betbar__meta">
-              Prize Pool:{' '}
-              <b>{totalPool(match) / 1000000000000} VARA</b>
-              {' · '}Has predictions: <b>{match.has_bets ? 'Yes' : 'No'}</b>
-            </div>
-          </div>
-
-          {betDisabledByAmount ? (
-            <div className="betbar__hint">Enter an amount greater than 0.</div>
-          ) : (
-            <div className="betbar__hint">You can bet using VARA or stablecoins (wUSDC / wUSDT).</div>
-          )}
+        <div className="mcx__midScore">
+          <div className="mcx__bigN">{topScoreHome}</div>
+          <div className="mcx__vs">VS</div>
+          <div className="mcx__bigN">{topScoreAway}</div>
         </div>
 
-        <div className="match-card__footer" style={{ gap: 10 }}>
-          <button className="back-button" onClick={() => navigate(-1)} disabled={txLoading}>
-            Back
+        <div className="mcx__side">
+          {rightFlagSrc ? <img className="mcx__flagLg" src={rightFlagSrc} alt={`${match.away} flag`} /> : null}
+          <div className="mcx__teamLbl">{match.away.toUpperCase()}</div>
+        </div>
+      </div>
+
+      <div className="mcx__since dim">{sincePredictedTop}</div>
+
+      <div className="mcx__miniBadge">
+        <div className="mcx__miniTeam">
+          {leftFlagSrc ? <img className="mcx__flagSm" src={leftFlagSrc} alt="" /> : null}
+          <div className="mcx__miniN">{selectedScore.home}</div>
+        </div>
+        <div className="mcx__miniVS">vs</div>
+        <div className="mcx__miniTeam">
+          <div className="mcx__miniN">{selectedScore.away}</div>
+          {rightFlagSrc ? <img className="mcx__flagSm" src={rightFlagSrc} alt="" /> : null}
+        </div>
+      </div>
+
+      <div className="mcx__resultLine">{resultLine}</div>
+
+      {isFinalized && <div className="mcx__closed dim">{finalizedMessage}</div>}
+
+      {showClaimButton ? (
+        <>
+          <button className="mcx__claimBtn is-ready" onClick={handleClaim} disabled={txLoadingClaim}>
+            {txLoadingClaim ? 'Claiming…' : `Claim ${formatVaraFromPlanck(claimableBn)} VARA`}
           </button>
 
-          <button
-            className="bet-button"
-            onClick={handleBet}
-            disabled={txLoading || !selected || !isBeforeKickoff || betDisabledByAmount}
-            style={{ opacity: !isBeforeKickoff ? 0.55 : 1 }}
-          >
-            {txLoading ? 'Sending…' : `Bet ${betAmountNumber > 0 ? betAmountNumber : 0} ${betCurrency}`}
-          </button>
-        </div>
-
-        {!isBeforeKickoff && (
-          <div style={{ marginTop: 12, fontSize: 12, opacity: 0.85 }}>
-            Betting is closed (kick-off time has passed).
+          <div className="mcx__claimSub dim">
+            You have <b>{formatVaraFromPlanck(claimableBn)} VARA</b> available for this match.
           </div>
+        </>
+      ) : null}
+
+      <div className="mcx__bottom">
+        <button className="mcx__viewAll" onClick={() => navigate('/all-predictions')}>
+          View All Matches <span className="mcx__arrow">→</span>
+        </button>
+      </div>
+
+      <details className="mcx__details">
+        <summary className="mcx__summary">Place Prediction</summary>
+
+        {isFinalized ? (
+          <div className="mcx__body dim" style={{ padding: 12 }}>
+            <b>{finalizedMessage}</b>
+            <div style={{ marginTop: 8, opacity: 0.85 }}>
+              You can’t place predictions on a finalized match. Please go back to the matches list.
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="mcx__formGrid">
+              <div className="mcx__formCol">
+                <div className="mcx__label dim">{match.home}</div>
+                <input
+                  className="mcx__inp mcx__inp--wine"
+                  type="text"
+                  inputMode="numeric"
+                  disabled={txLoadingBet || !isBeforeKickoff}
+                  value={selectedScoreTextState.home}
+                  onFocus={() =>
+                    onFocusZeroToBlank(
+                      () => selectedScoreTextState.home,
+                      (v) => setSelectedScoreTextState((s) => ({ ...s, home: v })),
+                    )
+                  }
+                  onBlur={() => {
+                    onBlurBlankToZero(
+                      () => selectedScoreTextState.home,
+                      (v) => setSelectedScoreTextState((s) => ({ ...s, home: v })),
+                    );
+                    const v = selectedScoreTextState.home.trim();
+                    setSelectedScore((s) => ({ ...s, home: v === '' ? 0 : clampScore(v) }));
+                  }}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^\d]/g, '');
+                    setSelectedScoreTextState((s) => ({ ...s, home: raw }));
+                    setSelectedScore((s) => ({ ...s, home: raw === '' ? 0 : clampScore(raw) }));
+                  }}
+                />
+              </div>
+
+              <div className="mcx__formCol">
+                <div className="mcx__label dim">{match.away}</div>
+                <input
+                  className="mcx__inp mcx__inp--wine"
+                  type="text"
+                  inputMode="numeric"
+                  disabled={txLoadingBet || !isBeforeKickoff}
+                  value={selectedScoreTextState.away}
+                  onFocus={() =>
+                    onFocusZeroToBlank(
+                      () => selectedScoreTextState.away,
+                      (v) => setSelectedScoreTextState((s) => ({ ...s, away: v })),
+                    )
+                  }
+                  onBlur={() => {
+                    onBlurBlankToZero(
+                      () => selectedScoreTextState.away,
+                      (v) => setSelectedScoreTextState((s) => ({ ...s, away: v })),
+                    );
+                    const v = selectedScoreTextState.away.trim();
+                    setSelectedScore((s) => ({ ...s, away: v === '' ? 0 : clampScore(v) }));
+                  }}
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^\d]/g, '');
+                    setSelectedScoreTextState((s) => ({ ...s, away: raw }));
+                    setSelectedScore((s) => ({ ...s, away: raw === '' ? 0 : clampScore(raw) }));
+                  }}
+                />
+              </div>
+            </div>
+
+            {isDraw && (
+              <div className="mcx__penBox mcx__penBox--wine">
+                <div className="mcx__penTitle">Penalties {isKnockout ? '(required)' : ''}</div>
+
+                <div className="mcx__formGrid">
+                  <div className="mcx__formCol">
+                    <div className="mcx__label dim">{match.home}</div>
+                    <input
+                      className="mcx__inp mcx__inp--wine"
+                      type="text"
+                      inputMode="numeric"
+                      disabled={txLoadingBet || !isBeforeKickoff}
+                      value={penaltiesTextState.home}
+                      onFocus={() =>
+                        onFocusZeroToBlank(
+                          () => penaltiesTextState.home,
+                          (v) => setPenaltiesTextState((p) => ({ ...p, home: v })),
+                        )
+                      }
+                      onBlur={() => {
+                        onBlurBlankToZero(
+                          () => penaltiesTextState.home,
+                          (v) => setPenaltiesTextState((p) => ({ ...p, home: v })),
+                        );
+                        const v = penaltiesTextState.home.trim();
+                        setPenalties((p) => ({ ...p, home: v === '' ? 0 : clampPenalties(v) }));
+                      }}
+                      onChange={(e) => {
+                        const raw = e.target.value.replace(/[^\d]/g, '');
+                        setPenaltiesTextState((p) => ({ ...p, home: raw }));
+                        setPenalties((p) => ({ ...p, home: raw === '' ? 0 : clampPenalties(raw) }));
+                      }}
+                    />
+                  </div>
+
+                  <div className="mcx__formCol">
+                    <div className="mcx__label dim">{match.away}</div>
+                    <input
+                      className="mcx__inp mcx__inp--wine"
+                      type="text"
+                      inputMode="numeric"
+                      disabled={txLoadingBet || !isBeforeKickoff}
+                      value={penaltiesTextState.away}
+                      onFocus={() =>
+                        onFocusZeroToBlank(
+                          () => penaltiesTextState.away,
+                          (v) => setPenaltiesTextState((p) => ({ ...p, away: v })),
+                        )
+                      }
+                      onBlur={() => {
+                        onBlurBlankToZero(
+                          () => penaltiesTextState.away,
+                          (v) => setPenaltiesTextState((p) => ({ ...p, away: v })),
+                        );
+                        const v = penaltiesTextState.away.trim();
+                        setPenalties((p) => ({ ...p, away: v === '' ? 0 : clampPenalties(v) }));
+                      }}
+                      onChange={(e) => {
+                        const raw = e.target.value.replace(/[^\d]/g, '');
+                        setPenaltiesTextState((p) => ({ ...p, away: raw }));
+                        setPenalties((p) => ({ ...p, away: raw === '' ? 0 : clampPenalties(raw) }));
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {isKnockout && predictedPenaltyWinnerArg === null ? (
+                  <div className="mcx__warn">Penalties can’t end in a tie (knockout draw requires a winner).</div>
+                ) : (
+                  <div className="dim" style={{ marginTop: 8 }}>
+                    {isKnockout
+                      ? `Winner will be sent on-chain as: ${predictedPenaltyWinnerArg ? ('Home' in predictedPenaltyWinnerArg ? 'Home' : 'Away') : '—'}`
+                      : ``}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="mcx__formGrid" style={{ marginTop: 12 }}>
+              <div className="mcx__formCol">
+                <div className="mcx__label dim">Bet amount</div>
+                <div className="mcx__amountWrap">
+                  <span className="mcx__amountPill">VARA</span>
+                  <input
+                    className="mcx__inp mcx__inp--wine mcx__inp--amount"
+                    inputMode="decimal"
+                    value={betAmount}
+                    onChange={(e) => setBetAmount(normalizeAmountInput(e.target.value))}
+                    placeholder="0.00"
+                  />
+                </div>
+
+                <div className="mcx__quickRow">
+                  <button
+                    className="mcx__qBtn"
+                    type="button"
+                    onClick={() => setBetAmount(String((betAmountNumber || 0) + 1))}>
+                    +1
+                  </button>
+                  <button
+                    className="mcx__qBtn"
+                    type="button"
+                    onClick={() => setBetAmount(String((betAmountNumber || 0) + 10))}>
+                    +10
+                  </button>
+                  <button
+                    className="mcx__qBtn"
+                    type="button"
+                    onClick={() => setBetAmount(String((betAmountNumber || 0) + 50))}>
+                    +50
+                  </button>
+                </div>
+              </div>
+
+              <div className="mcx__formCol">
+                <div className="mcx__label dim">Currency</div>
+                <select
+                  className="mcx__sel mcx__sel--wine"
+                  value={betCurrency}
+                  onChange={(e) => setBetCurrency(e.target.value as BetCurrency)}>
+                  <option value="VARA">VARA</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="mcx__meta dim">
+              Prize Pool: <b>{poolVara} VARA</b> · Has predictions: <b>{match.has_bets ? 'Yes' : 'No'}</b>
+              <br />
+              KICK-OFF: <b>{formatKickoffMs(match.kick_off)}</b> · Status: <b>{statusLabel(match.result)}</b>
+            </div>
+
+            <button
+              className="mcx__betBtn mcx__betBtn--wine"
+              onClick={handlePlaceBet}
+              disabled={txLoadingBet || !canBet}>
+              {txLoadingBet ? 'Sending Bet…' : `Send Prediction (${betAmountNumber || 0} ${betCurrency})`}
+            </button>
+
+            <div className={'mcx__toWin ' + (showToWin ? 'is-on' : 'is-off')}>
+              <div className="mcx__toWinLeft">
+                <div className="mcx__toWinTitle">
+                  Potential profit <span className="mcx__chip">VARA</span>
+                </div>
+
+                {showToWin ? (
+                  <div className="mcx__breakdown">
+                    <div className="mcx__bdRow">
+                      <span className="dim">Your stake into match pool (75%)</span>
+                      <b>{formatVaraFromPlanck(stakeInMatchPoolBn)} VARA</b>
+                    </div>
+                    <div className="mcx__bdRow">
+                      <span className="dim">Protocol fee (5%)</span>
+                      <b>{formatVaraFromPlanck(feeProtocolBn)} VARA</b>
+                    </div>
+                    <div className="mcx__bdRow">
+                      <span className="dim">Final prize (20%)</span>
+                      <b>{formatVaraFromPlanck(feeFinalBn)} VARA</b>
+                    </div>
+                    <div className="mcx__bdRow">
+                      <span className="dim">Pool after your bet</span>
+                      <b>{formatVaraFromPlanck(poolAfterBn)} VARA</b>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mcx__breakdown dim">Enter an amount to preview potential winnings.</div>
+                )}
+              </div>
+
+              <div className="mcx__toWinRight">
+                <div className="mcx__toWinValue">{showToWin ? formatVaraFromPlanck(maxProfitBn) : '—'}</div>
+                <div className="mcx__toWinUnit">VARA</div>
+                <div className="mcx__toWinNote dim">
+                  Max profit (if you're the only winner)
+                  <br />
+                  Max payout: {showToWin ? formatVaraFromPlanck(maxPayoutBn) : '—'} VARA
+                </div>
+              </div>
+            </div>
+          </>
         )}
-      </div>
+      </details>
+
+      {!isFinalized && !isBeforeKickoff && (
+        <div className="mcx__closed dim">Prediction is closed (kick-off time has passed).</div>
+      )}
     </section>
   );
 };

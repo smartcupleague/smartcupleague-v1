@@ -7,6 +7,7 @@ import { MatchesTableComponent } from '@/components/predictions/AllMatchs';
 import { QueryBetsByUserComponent } from '@/components/predictions/QueryBetsByUser';
 import Leaderboards from '@/components/leaderboard/Leaderboards';
 import GovernancePanel from '@/components/dao/GovernancePanel';
+import { Simulator } from './simulator';
 
 function Routing() {
   return (
@@ -18,7 +19,8 @@ function Routing() {
         <Route path="/my-predictions" element={<QueryBetsByUserComponent />} />
         <Route path="/all-predictions" element={<MatchesTableComponent />} />
         <Route path="/leaderboards" element={<Leaderboards />} />
-         <Route path="/dao" element={<GovernancePanel/>} />
+        <Route path="/dao" element={<GovernancePanel/>} />
+        <Route path="/simulator" element={<Simulator/>} />
         <Route path="/predictions/:wallet" element={<MatchesTableComponent />} />
       </Route>
     </Routes>

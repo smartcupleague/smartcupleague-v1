@@ -1,0 +1,577 @@
+:root {
+  --wine-950: #120008;
+  --wine-900: #17000c;
+  --wine-850: #1d0010;
+  --wine-800: #240016;
+  --wine-750: #2e001b;
+  --wine-700: #3a0322;
+  --wine-650: #45052a;
+  --wine-600: #4e0a31;
+  --wine-500: #7a1349;
+
+  --accent: #ff2e76;
+  --accent2: #a80545;
+
+  --text: rgba(255, 255, 255, 0.92);
+  --muted: rgba(255, 235, 246, 0.78);
+  --muted2: rgba(255, 255, 255, 0.66);
+
+  --panel: rgba(255, 255, 255, 0.05);
+  --panel2: rgba(255, 255, 255, 0.07);
+  --border: rgba(255, 255, 255, 0.10);
+  --border2: rgba(255, 255, 255, 0.14);
+
+  --r: 16px;
+  --r2: 12px;
+  --shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+  --shadow2: 0 10px 32px rgba(0, 0, 0, 0.38);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.mxShell {
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  color: var(--text);
+}
+
+.mxShell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(900px 520px at 14% 8%, rgba(255, 46, 118, 0.16), transparent 60%),
+    radial-gradient(860px 520px at 82% 18%, rgba(168, 5, 69, 0.14), transparent 62%),
+    radial-gradient(900px 700px at 55% 88%, rgba(255, 46, 118, 0.10), transparent 60%),
+    repeating-linear-gradient(115deg, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 8px);
+  opacity: 0.55;
+  filter: blur(0.2px);
+}
+
+@media (min-width: 1100px) {
+  .mxShell {
+    padding: 22px 24px;
+  }
+}
+
+.mxTop {
+  position: relative;
+  border-radius: calc(var(--r) + 6px);
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.16));
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow2);
+  padding: 14px 14px 12px;
+}
+
+.mxTop__row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+@media (max-width: 980px) {
+  .mxTop__row {
+    flex-direction: column;
+  }
+}
+
+.mxTitle h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 980;
+  letter-spacing: 0.2px;
+}
+
+.mxTitle p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.70);
+}
+
+.mxTop__right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+@media (max-width: 980px) {
+  .mxTop__right {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+}
+
+.mxSearch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  min-width: 420px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.16);
+  backdrop-filter: blur(12px);
+}
+
+.mxSearch__icon {
+  opacity: 0.85;
+}
+
+.mxSearch input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 13px;
+}
+
+.mxSearch input::placeholder {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+@media (max-width: 980px) {
+  .mxSearch {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+.mxShortcuts {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mxTabs {
+  margin-top: 12px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mxTab {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.14);
+  color: rgba(255, 255, 255, 0.88);
+  padding: 10px 12px;
+  border-radius: 14px;
+  cursor: pointer;
+  font-weight: 900;
+  font-size: 13px;
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.mxTab:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.mxTab.is-active {
+  border-color: rgba(255, 46, 118, 0.28);
+  background: radial-gradient(420px 140px at 20% 10%, rgba(255, 46, 118, 0.18), transparent 62%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.12));
+  box-shadow: 0 0 0 1px rgba(255, 46, 118, 0.10) inset;
+}
+
+.mxInfo {
+  margin-top: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(12px);
+  padding: 10px 12px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+@media (max-width: 980px) {
+  .mxInfo {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+.mxInfo__left {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.mxInfo__right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.mxPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.14);
+  color: rgba(255, 255, 255, 0.80);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.mxPill--live {
+  border-color: rgba(65, 214, 114, 0.32);
+  background: rgba(65, 214, 114, 0.10);
+  color: rgba(210, 255, 225, 0.95);
+}
+
+.mxSection {
+  position: relative;
+}
+
+.mxSection__title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 0 2px;
+}
+
+.mxSection__main {
+  font-weight: 980;
+  font-size: 18px;
+}
+
+.mxSection__sub {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.66);
+}
+
+.mxLoading,
+.mxEmpty {
+  color: rgba(255, 255, 255, 0.70);
+  padding: 10px 2px;
+}
+
+/* List / Cards */
+.mxList {
+  margin-top: 12px;
+  display: grid;
+  gap: 12px;
+}
+
+.mxCard {
+  border-radius: calc(var(--r) + 6px);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: radial-gradient(900px 260px at 18% 0%, rgba(255, 46, 118, 0.10), transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(0, 0, 0, 0.16));
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow2);
+  overflow: hidden;
+}
+
+.mxCard__top {
+  padding: 12px 14px 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.mxTeams {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.mxTeam {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.mxTeam--right {
+  justify-content: flex-end;
+}
+
+.mxTeam__name {
+  font-weight: 980;
+  color: rgba(255, 255, 255, 0.92);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+
+.mxFlag {
+  width: 40px;
+  height: 28px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  object-fit: cover;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.25);
+  flex: 0 0 auto;
+}
+
+.mxVs {
+  font-size: 12px;
+  font-weight: 950;
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.mxStatus {
+  margin-left: 6px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 980;
+  letter-spacing: 0.08em;
+}
+
+.mxStatus--final {
+  border: 1px solid rgba(65, 214, 114, 0.40);
+  background: rgba(65, 214, 114, 0.12);
+  color: rgba(210, 255, 225, 0.95);
+}
+.mxStatus--live {
+  border: 1px solid rgba(70, 170, 255, 0.40);
+  background: rgba(70, 170, 255, 0.12);
+  color: rgba(220, 245, 255, 0.95);
+}
+.mxStatus--open {
+  border: 1px solid rgba(255, 194, 75, 0.28);
+  background: rgba(255, 194, 75, 0.10);
+  color: rgba(255, 235, 200, 0.95);
+}
+
+.mxCard__topRight {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.mxStatusLine {
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+/* Mid layout */
+.mxCard__mid {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: 1.35fr 240px 260px;
+  gap: 12px;
+  align-items: start;
+}
+
+@media (max-width: 1040px) {
+  .mxCard__mid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mxMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.mxMeta__chip {
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.14);
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.mxFilter {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-top: 4px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.mxFilter__label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.66);
+  font-weight: 850;
+}
+
+.mxFilter input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 13px;
+}
+
+.mxFilter input::placeholder {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* Score */
+.mxScore {
+  border-radius: 16px;
+  border: 1px solid rgba(255, 46, 118, 0.22);
+  background: radial-gradient(520px 180px at 20% 15%, rgba(255, 46, 118, 0.14), transparent 60%),
+    rgba(0, 0, 0, 0.14);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.28);
+  padding: 10px 12px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
+.mxScore__label {
+  font-size: 12px;
+  font-weight: 980;
+  letter-spacing: 0.10em;
+  opacity: 0.75;
+  margin-bottom: 4px;
+}
+
+.mxScore__value {
+  font-size: 28px;
+  font-weight: 980;
+  color: rgba(255, 255, 255, 0.95);
+  letter-spacing: 0.6px;
+}
+
+.mxScore__sub {
+  font-size: 11px;
+  opacity: 0.70;
+  margin-top: 2px;
+}
+
+/* Pools + actions */
+.mxPools {
+  display: grid;
+  gap: 10px;
+}
+
+.mxPool {
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(0, 0, 0, 0.14);
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mxPool__k {
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.mxPool__v {
+  color: rgba(255, 255, 255, 0.92);
+  font-weight: 980;
+}
+
+.mxActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 1040px) {
+  .mxActions {
+    justify-content: flex-start;
+  }
+}
+
+/* Buttons */
+.mxBtn {
+  border: 1px solid transparent;
+  background: rgba(0, 0, 0, 0.16);
+  color: rgba(255, 255, 255, 0.92);
+  padding: 10px 12px;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  font-weight: 900;
+  font-size: 13px;
+}
+
+.mxBtn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.mxBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.mxBtn--ghost {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.mxBtn--soft {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.mxBtn--primary {
+  background: linear-gradient(180deg, rgba(255, 46, 118, 0.98), rgba(168, 5, 69, 0.96));
+  border-color: rgba(255, 46, 118, 0.26);
+  box-shadow: 0 10px 28px rgba(255, 46, 118, 0.18);
+}
+
+.mxBtn--claim {
+  border-color: rgba(65, 214, 114, 0.32);
+  background: rgba(65, 214, 114, 0.12);
+  box-shadow: 0 10px 26px rgba(65, 214, 114, 0.10);
+  color: rgba(210, 255, 225, 0.95);
+}
+
+/* Spinner */
+.mxSpinner {
+  width: 1.05rem;
+  height: 1.05rem;
+  border: 2.5px solid rgba(255, 46, 118, 0.9);
+  border-top-color: transparent;
+  border-radius: 50%;
+  display: inline-block;
+  animation: mxspin 0.85s linear infinite;
+  vertical-align: middle;
+  margin-right: 10px;
+}
+
+@keyframes mxspin {
+  to {
+    transform: rotate(360deg);
+  }
+}

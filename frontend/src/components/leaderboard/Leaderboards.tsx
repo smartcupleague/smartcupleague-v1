@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './leaderboards.css';
-import { Wallet } from '@gear-js/wallet-connect';
 import { useAccount, useApi, useAlert } from '@gear-js/react-hooks';
 import { web3Enable } from '@polkadot/extension-dapp';
 import { decodeAddress } from '@polkadot/util-crypto';
 import { u8aToHex } from '@polkadot/util';
 import { Program, Service } from '@/hocs/lib';
+import { StyledWallet } from '../wallet/Wallet';
 
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as `0x${string}`;
 
@@ -19,17 +19,9 @@ type LbRow = {
   delta?: number;
 };
 
-type BonusPick = {
-  left: string;
-  right: string;
-};
+type BonusPick = { left: string; right: string };
 
-type EarningRow = {
-  rank: number;
-  wallet: string;
-  usdc: number;
-  roi: number;
-};
+type EarningRow = { rank: number; wallet: string; usdc: number; roi: number };
 
 const bonusPicks: BonusPick[] = [
   { left: 'Argentina', right: 'France' },
@@ -46,8 +38,6 @@ const topEarnings: EarningRow[] = [
 const tabs = ['Overall Leaderboard', 'Match Performance', 'R32 Bonus (Picks)', 'Earnings / ROI'] as const;
 type Tab = (typeof tabs)[number];
 
-/* ---------------- Helpers ---------------- */
-
 function shortHex(addr: string) {
   if (!addr) return '-';
   if (!addr.startsWith('0x') || addr.length < 16) return addr;
@@ -58,9 +48,7 @@ function toHexAddress(input?: string | null): `0x${string}` | null {
   if (!input) return null;
   const trimmed = input.trim();
   if (!trimmed) return null;
-
   if (trimmed.startsWith('0x')) return trimmed.toLowerCase() as `0x${string}`;
-
   try {
     const u8a = decodeAddress(trimmed);
     return u8aToHex(u8a).toLowerCase() as `0x${string}`;
@@ -69,12 +57,7 @@ function toHexAddress(input?: string | null): `0x${string}` | null {
   }
 }
 
-/**
- * Estructura real del queryState (lo mínimo que usamos)
- */
-type QueryStateResponse = {
-  user_points?: Array<[string, number]>;
-};
+type QueryStateResponse = { user_points?: Array<[string, number]> };
 
 export default function Leaderboards() {
   const [activeTab, setActiveTab] = useState<Tab>('Overall Leaderboard');
@@ -87,7 +70,6 @@ export default function Leaderboards() {
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<LbRow[]>([]);
 
-  // Para Jump to me
   const listRef = useRef<HTMLDivElement | null>(null);
 
   const myWalletHex = useMemo(() => {
@@ -109,14 +91,11 @@ export default function Leaderboards() {
 
       const points = Array.isArray(state?.user_points) ? state.user_points : [];
 
-      console.log(state);
-
       const mapped: LbRow[] = points
         .map(([wallet, totalPoints]) => ({
           rank: 0,
           wallet: String(wallet),
           totalPoints: Number(totalPoints ?? 0),
-
           matchPoints: Number(totalPoints ?? 0),
           tournamentBonus: 0,
           exactPicks: 0,
@@ -128,9 +107,7 @@ export default function Leaderboards() {
         return a.wallet.localeCompare(b.wallet);
       });
 
-      const withRank = mapped.map((r, idx) => ({ ...r, rank: idx + 1 }));
-
-      setRows(withRank);
+      setRows(mapped.map((r, idx) => ({ ...r, rank: idx + 1 })));
     } catch (e: any) {
       console.error(e);
       setRows([]);
@@ -165,96 +142,104 @@ export default function Leaderboards() {
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
+  const showComingSoon = activeTab !== 'Overall Leaderboard';
+
   return (
     <div className="lb lb--full">
       <div className="lb__bg" aria-hidden="true" />
 
       <header className="lbTop">
         <div className="lbTop__left">
-          <button className="lbChip lbChip--active">
+          <button className="lbChip lbChip--active" type="button">
             <span className="lbChip__dot">🏆</span>
             World Cup 2026
-            <span className="lbChip__sub">Knockout Stage</span>
+            <span className="lbChip__sub">{loading ? 'Syncing…' : 'On-chain'}</span>
           </button>
 
-          <button className="lbChip lbChip--ghost" aria-label="More">
-            ⋯
+          <button
+            className="lbChip lbChip--ghost"
+            aria-label="Refresh"
+            type="button"
+            onClick={fetchLeaderboard}
+            title="Refresh">
+            ⟳
           </button>
         </div>
 
         <div className="lbTop__right">
-          <div className="lbWallet">
-            <Wallet />
-          </div>
+          <StyledWallet />
         </div>
       </header>
 
       <section className="lbSubnav">
-        <div className="lbTabs">
+        <div className="lbTabs" role="tablist" aria-label="Leaderboards tabs">
           {tabs.map((t) => (
             <button
               key={t}
               className={'lbTab ' + (activeTab === t ? 'lbTab--active' : '')}
               onClick={() => setActiveTab(t)}
-              type="button">
+              type="button"
+              role="tab"
+              aria-selected={activeTab === t}>
               {t}
             </button>
           ))}
         </div>
 
-        <div className="lbSearch">
-          <span className="lbSearch__icon">🔎</span>
+        <div className="lbSearch" role="search">
+          <span className="lbSearch__icon" aria-hidden="true">
+            ⌕
+          </span>
           <input
             className="lbSearch__input"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search by address"
+            aria-label="Search by address"
           />
         </div>
       </section>
 
       <section className="lbHeaderRow">
         <div className="lbTitle">
-          <div className="lbTitle__main">World Cup 2026</div>
-          <div className="lbTitle__sub muted">On-chain Leaderboard</div>
+          <div className="lbTitle__main">Leaderboard</div>
+          <div className="lbTitle__sub muted">World Cup 2026 • On-chain</div>
         </div>
 
         <div className="lbPager">
-          <span className="muted tiny">{loading ? 'Syncing…' : `Players: ${rows.length}`}</span>
+          <span className="muted tiny">{loading ? 'Loading…' : `Players: ${rows.length}`}</span>
           <button className="lbPage" type="button" onClick={fetchLeaderboard}>
-            ↻ Refresh
+            Refresh
+          </button>
+          <button className="lbPage lbPage--ghost" type="button" onClick={handleJumpToMe} disabled={!myWalletHex}>
+            Jump to me
           </button>
         </div>
       </section>
 
       <main className="lbGrid">
-        <section className="lbCard lbCard--table">
+        <section className="lbCard lbCard--table" aria-label="Leaderboard table">
           <div className="lbTable" ref={listRef}>
             <div className="lbTHead">
               <div>Rank</div>
               <div>Wallet</div>
-              <div className="lbTH--num">Total Points</div>
-              <div className="lbTH--num">Match Points</div>
-              <div className="lbTH--num">Tournament Bonus</div>
-              <div className="lbTH--num">Exact Picks</div>
+              <div className="lbTH--num">Total</div>
+              <div className="lbTH--num">Match</div>
+              <div className="lbTH--num">Bonus</div>
+              <div className="lbTH--num">Exact</div>
             </div>
 
             <div className="lbTBody">
-              {activeTab !== 'Overall Leaderboard' ? (
-                <div className="lbTable__foot muted tiny" style={{ padding: '14px' }}>
-                  Coming soon.
-                </div>
+              {showComingSoon ? (
+                <div className="lbTable__foot muted tiny">Coming soon.</div>
               ) : loading ? (
-                <div className="lbTable__foot muted tiny" style={{ padding: '14px' }}>
-                  Loading on-chain leaderboard…
-                </div>
+                <div className="lbTable__foot muted tiny">Loading on-chain leaderboard…</div>
               ) : filtered.length === 0 ? (
-                <div className="lbTable__foot muted tiny" style={{ padding: '14px' }}>
-                  No wallets found.
-                </div>
+                <div className="lbTable__foot muted tiny">No wallets found.</div>
               ) : (
                 filtered.map((r) => {
                   const isMe = !!myWalletHex && r.wallet.toLowerCase() === myWalletHex.toLowerCase();
+                  const medal = r.rank === 1 ? '🥇' : r.rank === 2 ? '🥈' : r.rank === 3 ? '🥉' : '•';
 
                   return (
                     <div
@@ -263,20 +248,18 @@ export default function Leaderboards() {
                       className={'lbTRow ' + (isMe ? 'lbTRow--me' : '')}>
                       <div className="lbRank">
                         <span className="lbMedal" aria-hidden="true">
-                          {r.rank === 1 ? '🥇' : r.rank === 2 ? '🥈' : r.rank === 3 ? '🥉' : '•'}
+                          {medal}
                         </span>
                         <span className="lbRank__no">#{r.rank}</span>
                       </div>
 
                       <div className="lbWalletCell mono" title={r.wallet}>
                         <span className="lbAvatar" aria-hidden="true" />
-                        {shortHex(r.wallet)}
+                        <span className="lbWalletCell__text">{shortHex(r.wallet)}</span>
+                        {isMe ? <span className="lbMe">YOU</span> : null}
                       </div>
 
                       <div className="lbNum">
-                        <span className="lbTrophy" aria-hidden="true">
-                          🏆
-                        </span>
                         <span className="lbNum__main">{r.totalPoints}</span>
                       </div>
 
@@ -303,12 +286,15 @@ export default function Leaderboards() {
           <section className="lbCard">
             <div className="lbCard__head">
               <div className="lbCard__title">Tournament Bonus: R32 Picks</div>
+              <div className="lbCard__sub muted tiny">Preview</div>
             </div>
 
             <div className="lbPickList">
               {bonusPicks.map((p, i) => (
                 <div className="lbPick" key={i}>
-                  <span className="lbPick__icon">🔥</span>
+                  <span className="lbPick__icon" aria-hidden="true">
+                    🔥
+                  </span>
                   <div className="lbPick__teams">
                     <div className="lbPick__team">{p.left}</div>
                     <div className="lbPick__vs muted tiny">vs</div>
@@ -327,7 +313,8 @@ export default function Leaderboards() {
 
           <section className="lbCard">
             <div className="lbCard__head">
-              <div className="lbCard__title">Top Earnings: World Cup</div>
+              <div className="lbCard__title">Top Earnings</div>
+              <div className="lbCard__sub muted tiny">World Cup</div>
             </div>
 
             <div className="lbEarnings">
@@ -350,7 +337,7 @@ export default function Leaderboards() {
         </aside>
       </main>
 
-      <footer className="lbBottom">
+      <footer className="lbBottom" aria-label="Your rank sticky bar">
         <div className="lbBottom__left">
           <div className="lbBottom__label muted tiny">Your Rank</div>
           <div className="lbBottom__value">

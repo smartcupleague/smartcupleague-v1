@@ -1,8 +1,44 @@
+:root {
+  --wine-950: #120008;
+  --wine-900: #17000c;
+  --wine-850: #1d0010;
+  --wine-800: #240016;
+  --wine-750: #2e001b;
+  --wine-700: #3a0322;
+  --wine-650: #45052a;
+  --wine-600: #4e0a31;
+  --wine-500: #7a1349;
+
+  --accent: #ff2e76;
+  --accent2: #a80545;
+
+  --text: rgba(255, 255, 255, 0.92);
+  --muted: rgba(255, 235, 246, 0.78);
+  --muted2: rgba(255, 255, 255, 0.66);
+
+  --panel: rgba(255, 255, 255, 0.05);
+  --panel2: rgba(255, 255, 255, 0.07);
+  --border: rgba(255, 255, 255, 0.10);
+  --border2: rgba(255, 255, 255, 0.14);
+
+  --r: 16px;
+  --r2: 12px;
+  --shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+  --shadow2: 0 10px 32px rgba(0, 0, 0, 0.38);
+
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, Helvetica, Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
 .lb {
   position: relative;
   width: 100%;
   min-height: 100%;
   padding: 18px;
+  color: var(--text);
 }
 
 @media (min-width: 1100px) {
@@ -15,12 +51,11 @@
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(900px 500px at 50% 0%, rgba(255, 0, 110, 0.14), transparent 60%),
-    radial-gradient(700px 450px at 90% 30%, rgba(255, 79, 156, 0.12), transparent 65%),
-    radial-gradient(900px 650px at 10% 80%, rgba(142, 30, 100, 0.14), transparent 60%),
+  background: radial-gradient(900px 520px at 14% 8%, rgba(255, 46, 118, 0.16), transparent 60%),
+    radial-gradient(860px 520px at 82% 18%, rgba(168, 5, 69, 0.14), transparent 62%),
+    radial-gradient(900px 700px at 55% 88%, rgba(255, 46, 118, 0.10), transparent 60%),
     radial-gradient(1200px 800px at 50% 110%, rgba(0, 0, 0, 0.45), transparent 60%),
-    repeating-linear-gradient(115deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 7px);
-  mix-blend-mode: screen;
+    repeating-linear-gradient(115deg, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 8px);
   opacity: 0.55;
   filter: blur(0.2px);
 }
@@ -38,11 +73,10 @@
   padding: 12px 14px;
 
   border-radius: calc(var(--r) + 6px);
-  border: 1px solid var(--stroke2);
-  background: radial-gradient(900px 260px at 20% 0%, rgba(255, 0, 110, 0.14), transparent 60%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
-  backdrop-filter: var(--blur);
-  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.16));
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow2);
 }
 
 .lbTop__left {
@@ -62,7 +96,7 @@
   justify-content: flex-end;
 }
 
-/* Tournament chips (like top tabs) */
+/* Tournament chip */
 .lbChip {
   position: relative;
   display: flex;
@@ -71,18 +105,18 @@
   padding: 10px 12px;
   border-radius: 14px;
   border: 1px solid transparent;
-  background: rgba(0, 0, 0, 0.16);
+  background: rgba(0, 0, 0, 0.18);
   color: rgba(255, 255, 255, 0.9);
   cursor: pointer;
   transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
 .lbChip:hover {
   transform: translateY(-1px);
-  border-color: rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--border2);
+  background: rgba(255, 255, 255, 0.06);
 }
 .lbChip__dot {
-  filter: drop-shadow(0 0 12px rgba(255, 0, 110, 0.38));
+  filter: drop-shadow(0 0 14px rgba(255, 46, 118, 0.22));
 }
 .lbChip__sub {
   position: absolute;
@@ -98,13 +132,13 @@
   padding: 0;
 }
 .lbChip--active {
-  border-color: rgba(255, 0, 110, 0.45);
-  background: radial-gradient(520px 140px at 20% 20%, rgba(255, 0, 110, 0.26), transparent 62%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.06));
-  box-shadow: 0 0 0 1px rgba(255, 0, 110, 0.22) inset, 0 18px 60px rgba(255, 0, 110, 0.14);
+  border-color: rgba(255, 46, 118, 0.28);
+  background: radial-gradient(520px 160px at 20% 10%, rgba(255, 46, 118, 0.18), transparent 62%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.10));
+  box-shadow: 0 0 0 1px rgba(255, 46, 118, 0.12) inset;
 }
 
-/* Subnav row */
+/* Subnav */
 .lbSubnav {
   position: relative;
   width: 100%;
@@ -120,35 +154,34 @@
   gap: 10px;
   flex-wrap: wrap;
   align-items: center;
-
   padding: 8px;
   border-radius: 16px;
-  border: 1px solid var(--stroke2);
-  background: rgba(0, 0, 0, 0.1);
-  backdrop-filter: var(--blur);
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.14);
+  backdrop-filter: blur(12px);
 }
 
 .lbTab {
   border: 1px solid transparent;
-  background: rgba(0, 0, 0, 0.12);
-  color: rgba(255, 255, 255, 0.86);
+  background: rgba(0, 0, 0, 0.18);
+  color: rgba(255, 255, 255, 0.88);
   padding: 10px 12px;
   border-radius: 14px;
   cursor: pointer;
   transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
-  font-weight: 650;
+  font-weight: 750;
   font-size: 13px;
 }
 .lbTab:hover {
   transform: translateY(-1px);
-  border-color: rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--border2);
+  background: rgba(255, 255, 255, 0.06);
 }
 .lbTab--active {
-  border-color: rgba(255, 0, 110, 0.45);
-  background: radial-gradient(320px 120px at 30% 20%, rgba(255, 0, 110, 0.22), transparent 60%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.06));
-  box-shadow: 0 0 0 1px rgba(255, 0, 110, 0.2) inset;
+  border-color: rgba(255, 46, 118, 0.28);
+  background: radial-gradient(320px 120px at 30% 20%, rgba(255, 46, 118, 0.18), transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.10));
+  box-shadow: 0 0 0 1px rgba(255, 46, 118, 0.10) inset;
 }
 
 /* Search */
@@ -160,20 +193,20 @@
 
   min-width: 340px;
   border-radius: 16px;
-  border: 1px solid var(--stroke2);
-  background: rgba(0, 0, 0, 0.12);
-  backdrop-filter: var(--blur);
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.16);
+  backdrop-filter: blur(12px);
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
 }
 .lbSearch__icon {
-  opacity: 0.8;
+  opacity: 0.85;
 }
 .lbSearch__input {
   width: 100%;
   border: none;
   outline: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.9);
+  color: rgba(255, 255, 255, 0.92);
   font-size: 13px;
 }
 .lbSearch__input::placeholder {
@@ -197,7 +230,7 @@
 }
 .lbTitle__main {
   font-size: 22px;
-  font-weight: 900;
+  font-weight: 950;
   letter-spacing: 0.2px;
 }
 .lbTitle__sub {
@@ -212,18 +245,28 @@
 }
 .lbPage {
   border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(0, 0, 0, 0.1);
-  color: rgba(255, 255, 255, 0.86);
+  background: rgba(0, 0, 0, 0.14);
+  color: rgba(255, 255, 255, 0.9);
   padding: 8px 10px;
   border-radius: 12px;
   cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
 }
-.lbPage--active {
-  border-color: rgba(255, 0, 110, 0.45);
-  box-shadow: 0 0 0 1px rgba(255, 0, 110, 0.18) inset;
+.lbPage:hover {
+  transform: translateY(-1px);
+  border-color: var(--border2);
   background: rgba(255, 255, 255, 0.06);
 }
+.lbPage:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+.lbPage--ghost {
+  background: transparent;
+}
 
+/* Grid */
 .lbGrid {
   position: relative;
   width: 100%;
@@ -234,14 +277,15 @@
   min-width: 0;
 }
 
+/* Card */
 .lbCard {
   border-radius: var(--r);
-  border: 1px solid var(--stroke2);
-  background: radial-gradient(700px 280px at 20% 0%, rgba(255, 0, 110, 0.14), transparent 58%),
-    radial-gradient(620px 260px at 92% 30%, rgba(142, 30, 100, 0.12), transparent 62%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
-  backdrop-filter: var(--blur);
-  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  background: radial-gradient(700px 280px at 20% 0%, rgba(255, 46, 118, 0.10), transparent 58%),
+    radial-gradient(620px 260px at 92% 30%, rgba(168, 5, 69, 0.10), transparent 62%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.16));
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow2);
   overflow: hidden;
   min-width: 0;
 }
@@ -249,10 +293,17 @@
 .lbCard__head {
   padding: 12px 14px 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
 }
 .lbCard__title {
-  font-weight: 800;
-  color: rgba(255, 255, 255, 0.86);
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.9);
+}
+.lbCard__sub {
+  color: rgba(255, 255, 255, 0.62);
 }
 .lbCard__foot {
   padding: 12px 14px 14px;
@@ -275,9 +326,9 @@
   gap: 10px;
   padding: 10px 12px;
   border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(0, 0, 0, 0.1);
-  color: rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(0, 0, 0, 0.16);
+  color: rgba(255, 255, 255, 0.68);
   font-size: 12px;
 }
 .lbTH--num {
@@ -297,17 +348,20 @@
   gap: 10px;
   padding: 12px 12px;
   border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(0, 0, 0, 0.14);
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 .lbTRow:hover {
   border-color: rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.05);
+  transform: translateY(-1px);
 }
 .lbTRow--me {
-  border-color: rgba(255, 0, 110, 0.4);
-  background: radial-gradient(520px 160px at 18% 50%, rgba(255, 0, 110, 0.16), transparent 60%), rgba(0, 0, 0, 0.1);
-  box-shadow: 0 0 0 1px rgba(255, 0, 110, 0.18) inset;
+  border-color: rgba(255, 46, 118, 0.32);
+  background: radial-gradient(520px 160px at 18% 50%, rgba(255, 46, 118, 0.14), transparent 60%),
+    rgba(0, 0, 0, 0.14);
+  box-shadow: 0 0 0 1px rgba(255, 46, 118, 0.12) inset;
 }
 
 .lbRank {
@@ -322,11 +376,11 @@
   display: grid;
   place-items: center;
   background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.10);
 }
 .lbRank__no {
-  font-weight: 900;
-  color: rgba(255, 255, 255, 0.88);
+  font-weight: 950;
+  color: rgba(255, 255, 255, 0.90);
 }
 
 .lbWalletCell {
@@ -335,23 +389,31 @@
   gap: 10px;
   min-width: 0;
 }
+.lbWalletCell__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .lbAvatar {
   width: 20px;
   height: 20px;
   border-radius: 8px;
-  background: radial-gradient(circle at 30% 20%, rgba(255, 79, 156, 0.4), transparent 60%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05));
+  background: radial-gradient(circle at 30% 20%, rgba(255, 46, 118, 0.22), transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04));
   border: 1px solid rgba(255, 255, 255, 0.12);
   flex: 0 0 auto;
 }
-.lbDelta {
-  margin-left: 8px;
+.lbMe {
+  margin-left: 6px;
   padding: 4px 8px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 0, 110, 0.3);
-  background: rgba(255, 0, 110, 0.1);
-  color: rgba(255, 255, 255, 0.86);
-  font-size: 12px;
+  border: 1px solid rgba(255, 46, 118, 0.26);
+  background: rgba(255, 46, 118, 0.10);
+  color: rgba(255, 255, 255, 0.90);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
 }
 
 .lbNum {
@@ -361,36 +423,34 @@
   align-items: center;
   gap: 8px;
 }
-.lbTrophy {
-  opacity: 0.8;
-}
 .lbNum__main {
-  font-weight: 900;
+  font-weight: 950;
   letter-spacing: 0.2px;
 }
 
 .lbTable__foot {
-  padding: 10px 12px 4px;
+  padding: 14px;
   text-align: center;
 }
 
 /* Right cards content */
-.lbPickList {
+.lbPickList,
+.lbEarnings {
   padding: 10px 14px 14px;
   display: grid;
   gap: 10px;
+}
+.lbPick,
+.lbEarnRow {
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(0, 0, 0, 0.14);
 }
 .lbPick {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(0, 0, 0, 0.1);
-}
-.lbPick__icon {
-  opacity: 0.9;
 }
 .lbPick__teams {
   display: flex;
@@ -398,16 +458,7 @@
   gap: 10px;
 }
 .lbPick__team {
-  font-weight: 800;
-}
-.lbPick__vs {
-  margin-top: 2px;
-}
-
-.lbEarnings {
-  padding: 10px 14px 14px;
-  display: grid;
-  gap: 10px;
+  font-weight: 900;
 }
 .lbEarnRow {
   display: grid;
@@ -415,56 +466,66 @@
   gap: 10px;
   align-items: center;
   padding: 10px 12px;
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(0, 0, 0, 0.1);
 }
 .lbEarnRank {
-  font-weight: 900;
-  color: rgba(255, 255, 255, 0.82);
+  font-weight: 950;
+  color: rgba(255, 255, 255, 0.86);
 }
 .lbEarnWallet {
   color: rgba(255, 255, 255, 0.86);
 }
 .lbEarnNum {
-  color: rgba(255, 255, 255, 0.86);
+  color: rgba(255, 255, 255, 0.88);
 }
 .lbEarnRoi {
   color: rgba(255, 255, 255, 0.92);
-  text-shadow: 0 0 16px rgba(255, 0, 110, 0.14);
+  text-shadow: 0 0 16px rgba(255, 46, 118, 0.12);
 }
 
-/* Buttons (leaderboard-specific) */
+/* Buttons */
 .lbBtn {
   border: 1px solid transparent;
-  background: rgba(0, 0, 0, 0.14);
-  color: rgba(255, 255, 255, 0.9);
+  background: rgba(0, 0, 0, 0.16);
+  color: rgba(255, 255, 255, 0.92);
   padding: 10px 12px;
   border-radius: 14px;
   cursor: pointer;
   transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
-  font-weight: 650;
+  font-weight: 800;
   font-size: 13px;
 }
 .lbBtn:hover {
   transform: translateY(-1px);
-  border-color: rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--border2);
+  background: rgba(255, 255, 255, 0.06);
+}
+.lbBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
 }
 .lbBtn--ghost {
   background: transparent;
   border-color: rgba(255, 255, 255, 0.14);
-  color: rgba(255, 255, 255, 0.78);
+  color: rgba(255, 255, 255, 0.82);
 }
 .lbBtn--soft {
   background: rgba(255, 255, 255, 0.06);
   border-color: rgba(255, 255, 255, 0.12);
 }
 .lbBtn--primary {
-  background: radial-gradient(260px 140px at 30% 20%, rgba(255, 0, 110, 0.6), transparent 60%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04));
-  border-color: rgba(255, 0, 110, 0.38);
-  box-shadow: 0 0 0 1px rgba(255, 0, 110, 0.22) inset, 0 14px 40px rgba(255, 0, 110, 0.14);
+  background: linear-gradient(180deg, rgba(255, 46, 118, 0.98), rgba(168, 5, 69, 0.96));
+  border-color: rgba(255, 46, 118, 0.26);
+  box-shadow: 0 10px 28px rgba(255, 46, 118, 0.18);
+}
+
+/* Utilities */
+.wfull {
+  width: 100%;
+}
+.dot {
+  opacity: 0.55;
+  padding: 0 6px;
 }
 
 /* Bottom sticky bar */
@@ -477,11 +538,11 @@
   margin-top: 14px;
   padding: 12px 14px;
   border-radius: calc(var(--r) + 6px);
-  border: 1px solid var(--stroke2);
-  background: radial-gradient(900px 240px at 25% 0%, rgba(255, 0, 110, 0.12), transparent 60%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
-  backdrop-filter: var(--blur);
-  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  background: radial-gradient(900px 240px at 25% 0%, rgba(255, 46, 118, 0.12), transparent 60%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.16));
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow2);
 
   display: flex;
   align-items: center;
@@ -499,23 +560,18 @@
   align-items: baseline;
   gap: 8px;
 }
-.lbBottom__rank {
-  font-weight: 950;
-  font-size: 18px;
-}
+.lbBottom__rank,
 .lbBottom__pts {
-  font-weight: 950;
+  font-weight: 980;
   font-size: 18px;
 }
 
-.lbBottom__mid {
-  opacity: 0.85;
-}
 .lbBottom__right {
   display: flex;
   justify-content: flex-end;
 }
 
+/* Responsive */
 @media (max-width: 1100px) {
   .lbGrid {
     grid-template-columns: 1fr;
