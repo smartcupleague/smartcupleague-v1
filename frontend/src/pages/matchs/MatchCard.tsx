@@ -53,6 +53,9 @@ const PROTOCOL_FEE_BPS = 500n;
 const FINAL_PRIZE_BPS = 2000n;
 const BPS_DEN = 10_000n;
 
+// IMPORTANT: your contract closes betting 10 minutes BEFORE kick-off
+const BET_CLOSE_WINDOW_MS = 10 * 60 * 1000;
+
 type PenaltyWinnerArg = { Home: null } | { Away: null };
 type MaybePenaltyWinnerArg = PenaltyWinnerArg | null;
 
@@ -341,10 +344,12 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
     return state.matches.find((m) => String(m.match_id).trim() === idNorm) || null;
   }, [state, matchId]);
 
+  const kickoffMs = useMemo(() => (match ? kickOffToMs(match.kick_off) : 0), [match]);
+
   const isBeforeKickoff = useMemo(() => {
-    if (!match) return false;
-    return kickOffToMs(match.kick_off) > Date.now();
-  }, [match]);
+    if (!kickoffMs) return false;
+    return kickoffMs - BET_CLOSE_WINDOW_MS > Date.now();
+  }, [kickoffMs]);
 
   const isKnockout = useMemo(() => isKnockoutPhase(match?.phase), [match?.phase]);
 
@@ -391,13 +396,6 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
 
   const isDraw = selectedScore.home === selectedScore.away;
 
-  useEffect(() => {
-    if (!isDraw) {
-      setPenalties({ home: 0, away: 0 });
-      setPenaltiesTextState({ home: '0', away: '0' });
-    }
-  }, [isDraw]);
-
   const onFocusZeroToBlank = (getter: () => string, setter: (v: string) => void) => {
     const v = getter();
     if (v === '0') setter('');
@@ -408,11 +406,18 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
     if (v === '') setter('0');
   };
 
+ 
   const predictedPenaltyWinnerArg = useMemo<MaybePenaltyWinnerArg>(() => {
-    if (!isDraw) return null;
     if (!isKnockout) return null;
     return deducePenaltyWinnerArg(penalties);
-  }, [isDraw, isKnockout, penalties]);
+  }, [isKnockout, penalties]);
+
+  const penaltiesTouched = useMemo(() => {
+    const h = penaltiesTextState.home.trim();
+    const a = penaltiesTextState.away.trim();
+    
+    return h !== '' || a !== '';
+  }, [penaltiesTextState.home, penaltiesTextState.away]);
 
   const canBet = useMemo(() => {
     if (!match) return false;
@@ -420,10 +425,24 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
     if (!isBeforeKickoff) return false;
     if (betDisabledByAmount) return false;
 
-    if (isDraw && isKnockout && predictedPenaltyWinnerArg === null) return false;
+    if (isKnockout) {
+      
+      if (isDraw && predictedPenaltyWinnerArg === null) return false;
+
+      if (!isDraw && penaltiesTouched && predictedPenaltyWinnerArg === null) return false;
+    }
 
     return true;
-  }, [match, isFinalized, isBeforeKickoff, betDisabledByAmount, isDraw, isKnockout, predictedPenaltyWinnerArg]);
+  }, [
+    match,
+    isFinalized,
+    isBeforeKickoff,
+    betDisabledByAmount,
+    isKnockout,
+    isDraw,
+    penaltiesTouched,
+    predictedPenaltyWinnerArg,
+  ]);
 
   const settlementPrepared = !!match?.settlement_prepared;
   const matchPrizePoolBn = useMemo(() => toBnSafe(match?.match_prize_pool ?? 0), [match?.match_prize_pool]);
@@ -481,7 +500,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
       return;
     }
     if (!isBeforeKickoff) {
-      toast.error('Betting is closed (kick-off time has passed)');
+      toast.error('Betting is closed (10 minutes before kick-off)');
       return;
     }
     if (betAmountNumber <= 0) {
@@ -494,18 +513,33 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
 
     const drawPredicted = h === a;
 
+   
     let penaltyWinnerToSend: MaybePenaltyWinnerArg = null;
 
-    if (drawPredicted && isKnockout) {
+    if (isKnockout) {
       const pensH = clampPenalties(penalties.home);
       const pensA = clampPenalties(penalties.away);
-
       const arg = deducePenaltyWinnerArg({ home: pensH, away: pensA });
-      if (!arg) {
-        toast.error('In penalties there must be a winner (no tie).');
-        return;
+
+      if (drawPredicted) {
+        
+        if (!arg) {
+          toast.error('In penalties there must be a winner (no tie).');
+          return;
+        }
+        penaltyWinnerToSend = arg;
+      } else {
+        
+        if (penaltiesTouched) {
+          if (!arg) {
+            toast.error('If you enter penalties, there must be a winner (no tie).');
+            return;
+          }
+          penaltyWinnerToSend = arg;
+        } else {
+          penaltyWinnerToSend = null;
+        }
       }
-      penaltyWinnerToSend = arg;
     } else {
       penaltyWinnerToSend = null;
     }
@@ -562,6 +596,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
     selectedScore.away,
     penalties.home,
     penalties.away,
+    penaltiesTouched,
     toast,
     fetchState,
     fetchUserBetForMatch,
@@ -627,19 +662,16 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
 
   const resultLine = useMemo(() => {
     if (!match) return '—';
-    if (!isDraw)
-      return `${match.home.toUpperCase()} ${selectedScore.home} - ${selectedScore.away} ${match.away.toUpperCase()}`;
+    const base = `${match.home.toUpperCase()} ${selectedScore.home} - ${selectedScore.away} ${match.away.toUpperCase()}`;
 
-    if (isKnockout) {
-      const arg = predictedPenaltyWinnerArg;
-      const winner = arg && 'Home' in arg ? match.home : arg && 'Away' in arg ? match.away : '—';
-      if (winner !== '—') {
-        return `${match.home.toUpperCase()} ${selectedScore.home} - ${selectedScore.away} ${match.away.toUpperCase()} (${winner} wins on penalties)`;
-      }
-    }
+    if (!isKnockout) return base;
 
-    return `${match.home.toUpperCase()} ${selectedScore.home} - ${selectedScore.away} ${match.away.toUpperCase()}`;
-  }, [match, isDraw, selectedScore.home, selectedScore.away, isKnockout, predictedPenaltyWinnerArg]);
+    const arg = predictedPenaltyWinnerArg;
+    if (!arg) return base;
+
+    const winner = 'Home' in arg ? match.home : match.away;
+    return `${base} (${winner} wins on penalties)`;
+  }, [match, selectedScore.home, selectedScore.away, isKnockout, predictedPenaltyWinnerArg]);
 
   const finalizedMessage = useMemo(() => {
     if (!match || !isFinalized) return '';
@@ -689,6 +721,9 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
   const poolVara = planckToVaraHuman(totalPoolPlanck(match));
   const topScoreHome = isFinalized ? chainResult.home : shownScore.home;
   const topScoreAway = isFinalized ? chainResult.away : shownScore.away;
+
+  // Helpful close-time line (optional)
+  const bettingClosesAt = kickoffMs ? new Date(kickoffMs - BET_CLOSE_WINDOW_MS).toLocaleString() : '—';
 
   return (
     <section className="mcx">
@@ -826,9 +861,9 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
               </div>
             </div>
 
-            {isDraw && (
+            {isKnockout && (
               <div className="mcx__penBox mcx__penBox--wine">
-                <div className="mcx__penTitle">Penalties {isKnockout ? '(required)' : ''}</div>
+                <div className="mcx__penTitle">Penalties {isDraw ? '(required)' : '(optional)'}</div>
 
                 <div className="mcx__formGrid">
                   <div className="mcx__formCol">
@@ -892,14 +927,13 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
                   </div>
                 </div>
 
-                {isKnockout && predictedPenaltyWinnerArg === null ? (
-                  <div className="mcx__warn">Penalties can’t end in a tie (knockout draw requires a winner).</div>
+                {/* Warnings / helper */}
+                {isDraw && predictedPenaltyWinnerArg === null ? (
+                  <div className="mcx__warn">Penalties can’t end in a tie (draw prediction requires a winner).</div>
+                ) : penaltiesTouched && predictedPenaltyWinnerArg === null ? (
+                  <div className="mcx__warn">If you enter penalties, they can’t end in a tie.</div>
                 ) : (
-                  <div className="dim" style={{ marginTop: 8 }}>
-                    {isKnockout
-                      ? `Winner will be sent on-chain as: ${predictedPenaltyWinnerArg ? ('Home' in predictedPenaltyWinnerArg ? 'Home' : 'Away') : '—'}`
-                      : ``}
-                  </div>
+                  <div className="dim" style={{ marginTop: 8 }} />
                 )}
               </div>
             )}
@@ -954,7 +988,8 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
             <div className="mcx__meta dim">
               Prize Pool: <b>{poolVara} VARA</b> · Has predictions: <b>{match.has_bets ? 'Yes' : 'No'}</b>
               <br />
-              KICK-OFF: <b>{formatKickoffMs(match.kick_off)}</b> · Status: <b>{statusLabel(match.result)}</b>
+              KICK-OFF: <b>{formatKickoffMs(match.kick_off)}</b> · Betting closes: <b>{bettingClosesAt}</b> · Status:{' '}
+              <b>{statusLabel(match.result)}</b>
             </div>
 
             <button
@@ -1009,7 +1044,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
       </details>
 
       {!isFinalized && !isBeforeKickoff && (
-        <div className="mcx__closed dim">Prediction is closed (kick-off time has passed).</div>
+        <div className="mcx__closed dim">Prediction is closed (10 minutes before kick-off).</div>
       )}
     </section>
   );
