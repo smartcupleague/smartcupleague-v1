@@ -5,7 +5,6 @@ import { web3Enable, web3FromSource } from '@polkadot/extension-dapp';
 import { Program, Service } from '@/hocs/lib';
 import { TransactionBuilder } from 'sails-js';
 import { TEAM_FLAGS } from '@/utils/teams';
-import { StyledWallet } from '../wallet/Wallet';
 import { Header } from '../layout';
 
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM;
@@ -94,7 +93,12 @@ function toBn(val: string | number | bigint): bigint {
 
 function parsePenaltyWinner(v: any): PenaltyWinner {
   if (!v) return undefined;
-  if (typeof v === 'string') return v as PenaltyWinner;
+  if (v === 'Home' || v === 'Away') return v;
+  if (typeof v === 'string') {
+    const s = v.trim();
+    if (s === 'Home' || s === 'Away') return s as PenaltyWinner;
+    return undefined;
+  }
   if (typeof v === 'object') {
     const k = Object.keys(v)[0];
     if (k === 'Home' || k === 'Away') return k;
@@ -146,8 +150,9 @@ function getCurrentScore(result?: any): { home: number; away: number; tag: 'OPEN
     return { home: Number(s.home ?? 0) || 0, away: Number(s.away ?? 0) || 0, tag: 'FINAL' };
   }
   if (result.proposed?.score) {
+    
     const s = result.proposed.score;
-    return { home: Number(s.proposed?.home ?? 0) || 0, away: Number(s.proposed?.away ?? 0) || 0, tag: 'LIVE' };
+    return { home: Number(s.home ?? 0) || 0, away: Number(s.away ?? 0) || 0, tag: 'LIVE' };
   }
 
   return { home: 0, away: 0, tag: 'OPEN' };
@@ -179,6 +184,16 @@ function isExactScore(betScore?: Score, finalScore?: Score) {
   return !!betScore && !!finalScore && betScore.home === finalScore.home && betScore.away === finalScore.away;
 }
 
+
+function advanceOutcome(score: Score, penaltyWinner: PenaltyWinner): -1 | 0 | 1 {
+  const o = outcomeOf(score);
+  if (o !== 0) return o;
+  if (penaltyWinner === 'Home') return 1;
+  if (penaltyWinner === 'Away') return -1;
+  return 0;
+}
+
+
 function eligibleForPayout(
   betScore: Score | undefined,
   betPenalty: PenaltyWinner,
@@ -191,6 +206,7 @@ function eligibleForPayout(
   const knockout = isKnockout(phaseWeight);
   const drawFinal = finalScore.home === finalScore.away;
 
+
   const exact = isExactScore(betScore, finalScore);
   if (exact) {
     if (knockout && drawFinal) {
@@ -199,14 +215,21 @@ function eligibleForPayout(
     return true;
   }
 
-  const betOutcome = outcomeOf(betScore);
-  const finalOutcome = outcomeOf(finalScore);
+  if (!knockout) {
+    
+    return outcomeOf(betScore) === outcomeOf(finalScore);
+  }
 
-  if (!knockout) return betOutcome === finalOutcome;
+ 
+  const finalAdv = advanceOutcome(finalScore, finalPenalty);
+  if (finalAdv === 0) return false; 
 
-  if (drawFinal) return !!betPenalty && !!finalPenalty && betPenalty === finalPenalty;
+ 
+  const betDraw = betScore.home === betScore.away;
+  const betAdv = betDraw ? advanceOutcome(betScore, betPenalty) : outcomeOf(betScore);
 
-  return betOutcome === finalOutcome;
+  if (betAdv === 0) return false; 
+  return betAdv === finalAdv;
 }
 
 export const QueryBetsByUserComponent: React.FC = () => {
@@ -403,11 +426,7 @@ export const QueryBetsByUserComponent: React.FC = () => {
               type="button">
               ⟳
             </button>
-            <button
-              className="mpIconBtn"
-              title="Refresh state"
-              onClick={() => (isApiReady ? fetchState() : undefined)}
-              type="button">
+            <button className="mpIconBtn" title="Refresh state" onClick={() => (isApiReady ? fetchState() : undefined)} type="button">
               ⛁
             </button>
           </div>
@@ -518,7 +537,7 @@ export const QueryBetsByUserComponent: React.FC = () => {
                         : 'Potential (max pool)';
 
                     const claimed = !!b.claimed;
-                    const canClaim = matchFinal && settlementPrepared && eligible && !claimed;
+                    const canClaim = matchFinal && settlementPrepared && eligible && !claimed && realBn > 0n;
 
                     const statusLabelText = claimed ? 'Claimed' : matchFinal ? 'Finalized' : 'Pending';
                     const statusTone = claimed ? 'ok' : matchFinal ? 'final' : 'muted';
@@ -565,25 +584,20 @@ export const QueryBetsByUserComponent: React.FC = () => {
                               <span className="mpChip">Kickoff: {kickoff}</span>
                               <span className="mpChip">Pool: {poolHuman}</span>
                               <span className="mpChip">
-                                Current:{' '}
-                                <b>
-                                  {current.home}-{current.away}
-                                </b>
+                                Current: <b>{current.home}-{current.away}</b>
                               </span>
-                              {betPenalty ? <span className="mpChip">Penalty: {betPenalty}</span> : null}
+
+                              {betPenalty ? <span className="mpChip">Penalty pick: {betPenalty}</span> : null}
 
                               {matchFinal ? (
                                 <>
+                                  {finalPenalty ? <span className="mpChip">Final pens: {finalPenalty}</span> : null}
+
                                   <span className={'mpChip ' + (eligible ? 'is-good' : 'is-bad')}>
                                     Eligibility:{' '}
-                                    <b>
-                                      {eligible
-                                        ? exactHit
-                                          ? 'Eligible (exact)'
-                                          : 'Eligible (outcome)'
-                                        : 'Not eligible'}
-                                    </b>
+                                    <b>{eligible ? (exactHit ? 'Eligible (exact)' : 'Eligible (outcome)') : 'Not eligible'}</b>
                                   </span>
+
                                   <span className={'mpChip ' + (settlementPrepared ? 'is-good' : '')}>
                                     Settlement: <b>{settlementPrepared ? 'Ready' : 'Not prepared'}</b>
                                   </span>
@@ -634,7 +648,7 @@ export const QueryBetsByUserComponent: React.FC = () => {
             </div>
 
             <div className="mpCard__foot">
-              <span className="mpMini">Tip: In knockout draws, the penalty winner must match.</span>
+              <span className="mpMini">Tip: In knockout, “outcome” means who advances. In draws, penalties decide it.</span>
             </div>
           </section>
         )}
