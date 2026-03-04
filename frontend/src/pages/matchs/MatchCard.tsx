@@ -109,14 +109,14 @@ function getResultDetails(result: any): {
 } {
   if (!result) return { home: 0, away: 0, tag: 'OPEN', penaltyWinner: null };
 
-  // ✅ Contract style (CamelCase variants)
+ 
   if (result.Finalized?.score) {
     const s = result.Finalized.score;
     return {
       home: Number(s.home ?? 0) || 0,
       away: Number(s.away ?? 0) || 0,
       tag: 'FINAL',
-      // ✅ include penalty_winner if present (knockout draws)
+      
       penaltyWinner: result.Finalized?.penalty_winner ?? null,
     };
   }
@@ -130,7 +130,7 @@ function getResultDetails(result: any): {
     };
   }
 
-  // fallback older / alternate shapes
+  
   if (result.finalized?.score) {
     const s = result.finalized.score;
     return {
@@ -259,22 +259,21 @@ function deducePenaltyWinnerArg(pens: Score): MaybePenaltyWinnerArg {
   return null;
 }
 
-// --- Match contract logic mirror (minimal) ---
-// outcome: 1 home win, 0 draw, -1 away win
+
 function outcome(score: Score): number {
   if (score.home > score.away) return 1;
   if (score.home < score.away) return -1;
   return 0;
 }
 
-// advance_outcome (knockout): who advances (1 home, -1 away)
+
 function advanceOutcome(score: Score, penWinner: MaybePenaltyWinnerArg): number {
   const o = outcome(score);
   if (o !== 0) return o;
-  // draw: penWinner must decide
+  
   if (penWinner && 'Home' in penWinner) return 1;
   if (penWinner && 'Away' in penWinner) return -1;
-  // unknown => treat as not eligible
+  
   return 0;
 }
 
@@ -290,7 +289,7 @@ function isEligibleLikeContract(args: {
 
   const drawFinal = finalScore.home === finalScore.away;
 
-  // Exact score (and in knockout+draw needs correct penalty)
+ 
   const exactScore = betScore.home === finalScore.home && betScore.away === finalScore.away;
   if (exactScore) {
     if (knockout && drawFinal) {
@@ -299,18 +298,18 @@ function isEligibleLikeContract(args: {
     return true;
   }
 
-  // Group: classic outcome
+  
   if (!knockout) {
     return outcome(betScore) === outcome(finalScore);
   }
 
-  // Knockout: who advances
+  
   const finalAdv = advanceOutcome(finalScore, finalPenaltyWinner);
 
   const betAdv =
     betScore.home === betScore.away
-      ? advanceOutcome(betScore, betPenaltyWinner) // draw prediction requires penaltyWinner to encode advancement
-      : outcome(betScore); // non-draw implies advancement
+      ? advanceOutcome(betScore, betPenaltyWinner) 
+      : outcome(betScore); 
 
   if (finalAdv === 0 || betAdv === 0) return false;
   return betAdv === finalAdv;
@@ -337,7 +336,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
   const [betAmount, setBetAmount] = useState<string>('10');
   const [betCurrency, setBetCurrency] = useState<BetCurrency>('VARA');
 
-  // user bet (we need more than stake/claimed to show correct Claim eligibility)
+  
   const [userStakeBn, setUserStakeBn] = useState<bigint>(0n);
   const [userClaimed, setUserClaimed] = useState<boolean>(false);
   const [userBetScore, setUserBetScore] = useState<Score | null>(null);
@@ -395,7 +394,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
               result: m?.result ?? null,
             }))
           : [],
-        // ✅ phases are required to decide knockout exactly like contract (points_weight > 1)
+       
         phases: Array.isArray(s?.phases)
           ? s.phases.map((p: any) => ({
               name: String(p?.name ?? ''),
@@ -531,7 +530,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
     if (!isBeforeKickoff) return false;
     if (betDisabledByAmount) return false;
 
-    // draw + knockout => must choose penalties winner (no tie)
+   
     if (isDraw && isKnockout && predictedPenaltyWinnerArg === null) return false;
 
     return true;
@@ -541,7 +540,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
   const matchPrizePoolBn = useMemo(() => toBnSafe(match?.match_prize_pool ?? 0), [match?.match_prize_pool]);
   const totalWinnerStakeBn = useMemo(() => toBnSafe(match?.total_winner_stake ?? 0), [match?.total_winner_stake]);
 
-  // ✅ Determine eligibility like contract so we don't show a "Claim" that will panic.
+  
   const userEligibleToClaim = useMemo(() => {
     if (!match) return false;
     if (!isFinalized) return false;
@@ -638,7 +637,6 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
 
     let penaltyWinnerToSend: MaybePenaltyWinnerArg = null;
 
-    // ✅ Matches contract: only if draw AND knockout
     if (drawPredicted && isKnockout) {
       const pensH = clampPenalties(penalties.home);
       const pensA = clampPenalties(penalties.away);
@@ -789,7 +787,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
     if (!match || !isFinalized) return '';
     const base = `This match has ended. Final score: ${chainResult.home}-${chainResult.away}.`;
 
-    // If contract included penalty_winner, show human label
+    
     if (chainResult.penaltyWinner) {
       const pw = chainResult.penaltyWinner as any;
       const winner =
@@ -987,7 +985,6 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
               </div>
             </div>
 
-            {/* ✅ Only show penalties UI when draw AND knockout (matches contract) */}
             {isDraw && isKnockout && (
               <div className="mcx__penBox mcx__penBox--wine">
                 <div className="mcx__penTitle">Penalties (required)</div>
