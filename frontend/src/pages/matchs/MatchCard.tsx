@@ -267,13 +267,15 @@ function outcome(score: Score): number {
 }
 
 
-function advanceOutcome(score: Score, penWinner: MaybePenaltyWinnerArg): number {
+function advanceOutcome(score: Score, penWinner: MaybePenaltyWinnerArg | string | null): number {
   const o = outcome(score);
   if (o !== 0) return o;
-  
-  if (penWinner && 'Home' in penWinner) return 1;
-  if (penWinner && 'Away' in penWinner) return -1;
-  
+
+  if (!penWinner) return 0;
+
+  if (penWinner === 'Home' || (typeof penWinner === 'object' && 'Home' in penWinner)) return 1;
+  if (penWinner === 'Away' || (typeof penWinner === 'object' && 'Away' in penWinner)) return -1;
+
   return 0;
 }
 
