@@ -32,8 +32,16 @@ type MatchInfo = {
   participants: string[];
 };
 
+type PhaseInfo = {
+  name: string;
+  start_time: string;
+  end_time: string;
+  points_weight: number;
+};
+
 type IoBolaoState = {
   matches: MatchInfo[];
+  phases: PhaseInfo[];
 };
 
 export interface MatchCardProps {
@@ -97,18 +105,32 @@ function getResultDetails(result: any): {
   home: number;
   away: number;
   tag: 'OPEN' | 'LIVE' | 'FINAL';
-  penaltyWinner: string | null;
+  penaltyWinner: any | null;
 } {
   if (!result) return { home: 0, away: 0, tag: 'OPEN', penaltyWinner: null };
 
+  // ✅ Contract style (CamelCase variants)
   if (result.Finalized?.score) {
     const s = result.Finalized.score;
-    return { home: Number(s.home ?? 0) || 0, away: Number(s.away ?? 0) || 0, tag: 'FINAL', penaltyWinner: null };
+    return {
+      home: Number(s.home ?? 0) || 0,
+      away: Number(s.away ?? 0) || 0,
+      tag: 'FINAL',
+      // ✅ include penalty_winner if present (knockout draws)
+      penaltyWinner: result.Finalized?.penalty_winner ?? null,
+    };
   }
   if (result.Proposed?.score) {
     const s = result.Proposed.score;
-    return { home: Number(s.home ?? 0) || 0, away: Number(s.away ?? 0) || 0, tag: 'LIVE', penaltyWinner: null };
+    return {
+      home: Number(s.home ?? 0) || 0,
+      away: Number(s.away ?? 0) || 0,
+      tag: 'LIVE',
+      penaltyWinner: result.Proposed?.penalty_winner ?? null,
+    };
   }
+
+  // fallback older / alternate shapes
   if (result.finalized?.score) {
     const s = result.finalized.score;
     return {
@@ -120,7 +142,12 @@ function getResultDetails(result: any): {
   }
   if (result.proposed?.score) {
     const s = result.proposed.score;
-    return { home: Number(s.home ?? 0) || 0, away: Number(s.away ?? 0) || 0, tag: 'LIVE', penaltyWinner: null };
+    return {
+      home: Number(s.home ?? 0) || 0,
+      away: Number(s.away ?? 0) || 0,
+      tag: 'LIVE',
+      penaltyWinner: result.proposed?.penalty_winner ?? null,
+    };
   }
 
   if (result.Unresolved || result.unresolved) return { home: 0, away: 0, tag: 'OPEN', penaltyWinner: null };
@@ -226,22 +253,67 @@ function normalizeAmountInput(v: string) {
   return `${parts[0]}.${parts.slice(1).join('')}`;
 }
 
-function isKnockoutPhase(phase?: string): boolean {
-  const p = String(phase ?? '')
-    .trim()
-    .toLowerCase();
-  if (!p) return false;
-
-  if (p.includes('group')) return false;
-
-  const koHints = ['round of', 'r16', 'r32', 'quarter', 'semi', 'final', 'knockout', 'playoff', 'bracket', 'qf', 'sf'];
-  return koHints.some((k) => p.includes(k));
-}
-
 function deducePenaltyWinnerArg(pens: Score): MaybePenaltyWinnerArg {
   if (pens.home > pens.away) return { Home: null };
   if (pens.away > pens.home) return { Away: null };
   return null;
+}
+
+// --- Match contract logic mirror (minimal) ---
+// outcome: 1 home win, 0 draw, -1 away win
+function outcome(score: Score): number {
+  if (score.home > score.away) return 1;
+  if (score.home < score.away) return -1;
+  return 0;
+}
+
+// advance_outcome (knockout): who advances (1 home, -1 away)
+function advanceOutcome(score: Score, penWinner: MaybePenaltyWinnerArg): number {
+  const o = outcome(score);
+  if (o !== 0) return o;
+  // draw: penWinner must decide
+  if (penWinner && 'Home' in penWinner) return 1;
+  if (penWinner && 'Away' in penWinner) return -1;
+  // unknown => treat as not eligible
+  return 0;
+}
+
+function isEligibleLikeContract(args: {
+  knockout: boolean;
+  betScore: Score | null;
+  betPenaltyWinner: MaybePenaltyWinnerArg;
+  finalScore: Score | null;
+  finalPenaltyWinner: MaybePenaltyWinnerArg;
+}): boolean {
+  const { knockout, betScore, betPenaltyWinner, finalScore, finalPenaltyWinner } = args;
+  if (!betScore || !finalScore) return false;
+
+  const drawFinal = finalScore.home === finalScore.away;
+
+  // Exact score (and in knockout+draw needs correct penalty)
+  const exactScore = betScore.home === finalScore.home && betScore.away === finalScore.away;
+  if (exactScore) {
+    if (knockout && drawFinal) {
+      return !!betPenaltyWinner && JSON.stringify(betPenaltyWinner) === JSON.stringify(finalPenaltyWinner);
+    }
+    return true;
+  }
+
+  // Group: classic outcome
+  if (!knockout) {
+    return outcome(betScore) === outcome(finalScore);
+  }
+
+  // Knockout: who advances
+  const finalAdv = advanceOutcome(finalScore, finalPenaltyWinner);
+
+  const betAdv =
+    betScore.home === betScore.away
+      ? advanceOutcome(betScore, betPenaltyWinner) // draw prediction requires penaltyWinner to encode advancement
+      : outcome(betScore); // non-draw implies advancement
+
+  if (finalAdv === 0 || betAdv === 0) return false;
+  return betAdv === finalAdv;
 }
 
 export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentScore, currentScoreText }) => {
@@ -265,8 +337,11 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
   const [betAmount, setBetAmount] = useState<string>('10');
   const [betCurrency, setBetCurrency] = useState<BetCurrency>('VARA');
 
+  // user bet (we need more than stake/claimed to show correct Claim eligibility)
   const [userStakeBn, setUserStakeBn] = useState<bigint>(0n);
   const [userClaimed, setUserClaimed] = useState<boolean>(false);
+  const [userBetScore, setUserBetScore] = useState<Score | null>(null);
+  const [userBetPenaltyWinner, setUserBetPenaltyWinner] = useState<MaybePenaltyWinnerArg>(null);
   const [loadingUserBet, setLoadingUserBet] = useState<boolean>(false);
 
   const matchId = useMemo(() => String(id ?? '').trim(), [id]);
@@ -320,6 +395,15 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
               result: m?.result ?? null,
             }))
           : [],
+        // ✅ phases are required to decide knockout exactly like contract (points_weight > 1)
+        phases: Array.isArray(s?.phases)
+          ? s.phases.map((p: any) => ({
+              name: String(p?.name ?? ''),
+              start_time: String(p?.start_time ?? '0'),
+              end_time: String(p?.end_time ?? '0'),
+              points_weight: Number(p?.points_weight ?? 1) || 1,
+            }))
+          : [],
       };
 
       setState(normalized);
@@ -341,12 +425,27 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
     return state.matches.find((m) => String(m.match_id).trim() === idNorm) || null;
   }, [state, matchId]);
 
+  const phaseWeightMap = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of state?.phases ?? []) {
+      const key = String(p.name ?? '').trim();
+      if (key) m.set(key, Number(p.points_weight ?? 1) || 1);
+    }
+    return m;
+  }, [state?.phases]);
+
+  const pointsWeight = useMemo(() => {
+    const phase = String(match?.phase ?? '').trim();
+    return phase ? phaseWeightMap.get(phase) ?? 1 : 1;
+  }, [match?.phase, phaseWeightMap]);
+
+  // ✅ Knockout is exactly contract rule: points_weight > 1
+  const isKnockout = useMemo(() => (Number(pointsWeight) || 1) > 1, [pointsWeight]);
+
   const isBeforeKickoff = useMemo(() => {
     if (!match) return false;
     return kickOffToMs(match.kick_off) > Date.now();
   }, [match]);
-
-  const isKnockout = useMemo(() => isKnockoutPhase(match?.phase), [match?.phase]);
 
   const chainResult = useMemo(() => getResultDetails(match?.result), [match?.result]);
 
@@ -368,18 +467,30 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
       if (!b) {
         setUserStakeBn(0n);
         setUserClaimed(false);
+        setUserBetScore(null);
+        setUserBetPenaltyWinner(null);
         return;
       }
 
       const stake = toBnSafe(b?.stake_in_match_pool ?? 0);
       const claimed = typeof b?.claimed === 'boolean' ? b.claimed : false;
 
+      const bs = b?.score
+        ? { home: Number(b.score.home ?? 0) || 0, away: Number(b.score.away ?? 0) || 0 }
+        : null;
+
+      const bpw: MaybePenaltyWinnerArg = b?.penalty_winner ?? null;
+
       setUserStakeBn(stake);
       setUserClaimed(claimed);
+      setUserBetScore(bs);
+      setUserBetPenaltyWinner(bpw);
     } catch (e) {
       console.error('fetchUserBetForMatch error', e);
       setUserStakeBn(0n);
       setUserClaimed(false);
+      setUserBetScore(null);
+      setUserBetPenaltyWinner(null);
     } finally {
       setLoadingUserBet(false);
     }
@@ -420,6 +531,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
     if (!isBeforeKickoff) return false;
     if (betDisabledByAmount) return false;
 
+    // draw + knockout => must choose penalties winner (no tie)
     if (isDraw && isKnockout && predictedPenaltyWinnerArg === null) return false;
 
     return true;
@@ -429,13 +541,43 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
   const matchPrizePoolBn = useMemo(() => toBnSafe(match?.match_prize_pool ?? 0), [match?.match_prize_pool]);
   const totalWinnerStakeBn = useMemo(() => toBnSafe(match?.total_winner_stake ?? 0), [match?.total_winner_stake]);
 
+  // ✅ Determine eligibility like contract so we don't show a "Claim" that will panic.
+  const userEligibleToClaim = useMemo(() => {
+    if (!match) return false;
+    if (!isFinalized) return false;
+
+    const finalScore: Score | null =
+      chainResult.tag === 'FINAL' ? { home: chainResult.home, away: chainResult.away } : null;
+
+    const finalPenaltyWinner: MaybePenaltyWinnerArg =
+      chainResult?.penaltyWinner != null ? (chainResult.penaltyWinner as MaybePenaltyWinnerArg) : null;
+
+    return isEligibleLikeContract({
+      knockout: isKnockout,
+      betScore: userBetScore,
+      betPenaltyWinner: userBetPenaltyWinner,
+      finalScore,
+      finalPenaltyWinner,
+    });
+  }, [match, isFinalized, chainResult, isKnockout, userBetScore, userBetPenaltyWinner]);
+
   const claimableBn = useMemo(() => {
     if (!match) return 0n;
     if (!isFinalized) return 0n;
     if (!settlementPrepared) return 0n;
     if (userClaimed) return 0n;
+    if (!userEligibleToClaim) return 0n;
     return computeShareBn(userStakeBn, matchPrizePoolBn, totalWinnerStakeBn);
-  }, [match, isFinalized, settlementPrepared, userClaimed, userStakeBn, matchPrizePoolBn, totalWinnerStakeBn]);
+  }, [
+    match,
+    isFinalized,
+    settlementPrepared,
+    userClaimed,
+    userEligibleToClaim,
+    userStakeBn,
+    matchPrizePoolBn,
+    totalWinnerStakeBn,
+  ]);
 
   const showClaimButton = useMemo(() => {
     if (!account) return false;
@@ -496,6 +638,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
 
     let penaltyWinnerToSend: MaybePenaltyWinnerArg = null;
 
+    // ✅ Matches contract: only if draw AND knockout
     if (drawPredicted && isKnockout) {
       const pensH = clampPenalties(penalties.home);
       const pensA = clampPenalties(penalties.away);
@@ -627,15 +770,16 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
 
   const resultLine = useMemo(() => {
     if (!match) return '—';
-    if (!isDraw)
-      return `${match.home.toUpperCase()} ${selectedScore.home} - ${selectedScore.away} ${match.away.toUpperCase()}`;
+    if (!isDraw) return `${match.home.toUpperCase()} ${selectedScore.home} - ${selectedScore.away} ${match.away.toUpperCase()}`;
 
+    // draw
     if (isKnockout) {
       const arg = predictedPenaltyWinnerArg;
       const winner = arg && 'Home' in arg ? match.home : arg && 'Away' in arg ? match.away : '—';
       if (winner !== '—') {
         return `${match.home.toUpperCase()} ${selectedScore.home} - ${selectedScore.away} ${match.away.toUpperCase()} (${winner} wins on penalties)`;
       }
+      return `${match.home.toUpperCase()} ${selectedScore.home} - ${selectedScore.away} ${match.away.toUpperCase()} (select penalties winner)`;
     }
 
     return `${match.home.toUpperCase()} ${selectedScore.home} - ${selectedScore.away} ${match.away.toUpperCase()}`;
@@ -644,7 +788,19 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
   const finalizedMessage = useMemo(() => {
     if (!match || !isFinalized) return '';
     const base = `This match has ended. Final score: ${chainResult.home}-${chainResult.away}.`;
-    if (chainResult.penaltyWinner) return `${base} Penalty winner: ${chainResult.penaltyWinner}.`;
+
+    // If contract included penalty_winner, show human label
+    if (chainResult.penaltyWinner) {
+      const pw = chainResult.penaltyWinner as any;
+      const winner =
+        pw && typeof pw === 'object' && 'Home' in pw
+          ? match.home
+          : pw && typeof pw === 'object' && 'Away' in pw
+            ? match.away
+            : String(pw);
+
+      return `${base} Penalty winner: ${winner}.`;
+    }
     return base;
   }, [match, isFinalized, chainResult.home, chainResult.away, chainResult.penaltyWinner]);
 
@@ -695,7 +851,12 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
       <img className="mcx__trophy" src="/images/WorldCupTrophy_PNG.png" alt="World Cup Trophy" />
 
       <div className="mcx__header">
-        <div className="mcx__phase">{match.phase || 'Group Stage'}</div>
+        <div className="mcx__phase">
+          {match.phase || 'Group Stage'}
+          <span style={{ marginLeft: 8, opacity: 0.75, fontSize: 12 }}>
+            (weight: {pointsWeight})
+          </span>
+        </div>
       </div>
 
       <div className="mcx__scoreTop">
@@ -826,9 +987,10 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
               </div>
             </div>
 
-            {isDraw && (
+            {/* ✅ Only show penalties UI when draw AND knockout (matches contract) */}
+            {isDraw && isKnockout && (
               <div className="mcx__penBox mcx__penBox--wine">
-                <div className="mcx__penTitle">Penalties {isKnockout ? '(required)' : ''}</div>
+                <div className="mcx__penTitle">Penalties (required)</div>
 
                 <div className="mcx__formGrid">
                   <div className="mcx__formCol">
@@ -892,13 +1054,12 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
                   </div>
                 </div>
 
-                {isKnockout && predictedPenaltyWinnerArg === null ? (
+                {predictedPenaltyWinnerArg === null ? (
                   <div className="mcx__warn">Penalties can’t end in a tie (knockout draw requires a winner).</div>
                 ) : (
                   <div className="dim" style={{ marginTop: 8 }}>
-                    {isKnockout
-                      ? `Winner will be sent on-chain as: ${predictedPenaltyWinnerArg ? ('Home' in predictedPenaltyWinnerArg ? 'Home' : 'Away') : '—'}`
-                      : ``}
+                    Winner will be sent on-chain as:{' '}
+                    <b>{predictedPenaltyWinnerArg ? ('Home' in predictedPenaltyWinnerArg ? 'Home' : 'Away') : '—'}</b>
                   </div>
                 )}
               </div>
@@ -919,22 +1080,13 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
                 </div>
 
                 <div className="mcx__quickRow">
-                  <button
-                    className="mcx__qBtn"
-                    type="button"
-                    onClick={() => setBetAmount(String((betAmountNumber || 0) + 1))}>
+                  <button className="mcx__qBtn" type="button" onClick={() => setBetAmount(String((betAmountNumber || 0) + 1))}>
                     +1
                   </button>
-                  <button
-                    className="mcx__qBtn"
-                    type="button"
-                    onClick={() => setBetAmount(String((betAmountNumber || 0) + 10))}>
+                  <button className="mcx__qBtn" type="button" onClick={() => setBetAmount(String((betAmountNumber || 0) + 10))}>
                     +10
                   </button>
-                  <button
-                    className="mcx__qBtn"
-                    type="button"
-                    onClick={() => setBetAmount(String((betAmountNumber || 0) + 50))}>
+                  <button className="mcx__qBtn" type="button" onClick={() => setBetAmount(String((betAmountNumber || 0) + 50))}>
                     +50
                   </button>
                 </div>
@@ -942,10 +1094,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
 
               <div className="mcx__formCol">
                 <div className="mcx__label dim">Currency</div>
-                <select
-                  className="mcx__sel mcx__sel--wine"
-                  value={betCurrency}
-                  onChange={(e) => setBetCurrency(e.target.value as BetCurrency)}>
+                <select className="mcx__sel mcx__sel--wine" value={betCurrency} onChange={(e) => setBetCurrency(e.target.value as BetCurrency)}>
                   <option value="VARA">VARA</option>
                 </select>
               </div>
@@ -957,10 +1106,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
               KICK-OFF: <b>{formatKickoffMs(match.kick_off)}</b> · Status: <b>{statusLabel(match.result)}</b>
             </div>
 
-            <button
-              className="mcx__betBtn mcx__betBtn--wine"
-              onClick={handlePlaceBet}
-              disabled={txLoadingBet || !canBet}>
+            <button className="mcx__betBtn mcx__betBtn--wine" onClick={handlePlaceBet} disabled={txLoadingBet || !canBet}>
               {txLoadingBet ? 'Sending Bet…' : `Send Prediction (${betAmountNumber || 0} ${betCurrency})`}
             </button>
 
@@ -1008,9 +1154,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({ id, flag1, flag2, currentS
         )}
       </details>
 
-      {!isFinalized && !isBeforeKickoff && (
-        <div className="mcx__closed dim">Prediction is closed (kick-off time has passed).</div>
-      )}
+      {!isFinalized && !isBeforeKickoff && <div className="mcx__closed dim">Prediction is closed (kick-off time has passed).</div>}
     </section>
   );
 };
