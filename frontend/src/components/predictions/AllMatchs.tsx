@@ -8,6 +8,7 @@ import { TransactionBuilder } from 'sails-js';
 import { useToast } from '@/hooks/useToast';
 import { HexString } from '@gear-js/api';
 import { TEAM_FLAGS } from '@/utils/teams';
+import { StyledWallet } from '@/components/wallet/Wallet';
 
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as string;
 
@@ -129,6 +130,17 @@ function formatAmount(val: unknown, decimals = 12) {
   }
 }
 
+// Extract unique phases from matches list
+function getPhases(matches: MatchInfo[]): string[] {
+  const set = new Set<string>();
+  for (const m of matches) {
+    if (m.phase) set.add(m.phase);
+  }
+  return Array.from(set).sort();
+}
+
+type SortField = 'match_id' | 'date';
+
 export const MatchesTableComponent: React.FC = () => {
   const { api, isApiReady } = useApi();
   const { account } = useAccount();
@@ -138,9 +150,13 @@ export const MatchesTableComponent: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [matches, setMatches] = useState<MatchInfo[] | null>(null);
 
-  const [tab, setTab] = useState<'wc'>('wc');
   const [headerSearch, setHeaderSearch] = useState('');
   const [filterSearch, setFilterSearch] = useState('');
+
+  // Filters
+  const [filterStage, setFilterStage] = useState('');
+  const [filterDate, setFilterDate] = useState('');
+  const [sortField, setSortField] = useState<SortField>('match_id');
 
   const [claimLoadingId, setClaimLoadingId] = useState<string | null>(null);
 
@@ -186,14 +202,52 @@ export const MatchesTableComponent: React.FC = () => {
     fetchMatches();
   }, [fetchMatches]);
 
+  const phases = useMemo(() => getPhases(matches ?? []), [matches]);
+
   const filteredMatches = useMemo(() => {
+    let list = matches ?? [];
+
+    // Text search
     const q = (filterSearch || headerSearch).trim().toLowerCase();
-    if (!q) return matches ?? [];
-    return (matches ?? []).filter((m) => {
-      const s = `${m.home} ${m.away} ${m.match_id} ${m.phase}`.toLowerCase();
-      return s.includes(q);
-    });
-  }, [matches, filterSearch, headerSearch]);
+    if (q) {
+      list = list.filter((m) => {
+        const s = `${m.home} ${m.away} ${m.match_id} ${m.phase}`.toLowerCase();
+        return s.includes(q);
+      });
+    }
+
+    // Stage filter
+    if (filterStage) {
+      list = list.filter((m) => m.phase === filterStage);
+    }
+
+    // Date filter (YYYY-MM-DD string)
+    if (filterDate) {
+      list = list.filter((m) => {
+        const n = Number(m.kick_off);
+        if (!n) return false;
+        const ms = n < 10_000_000_000 ? n * 1000 : n;
+        const d = new Date(ms);
+        const iso = d.toISOString().slice(0, 10); // YYYY-MM-DD
+        return iso === filterDate;
+      });
+    }
+
+    // Sort
+    if (sortField === 'date') {
+      list = [...list].sort((a, b) => Number(a.kick_off) - Number(b.kick_off));
+    } else {
+      // Default: match #
+      list = [...list].sort((a, b) => {
+        const ai = Number(a.match_id);
+        const bi = Number(b.match_id);
+        if (Number.isFinite(ai) && Number.isFinite(bi)) return ai - bi;
+        return a.match_id.localeCompare(b.match_id);
+      });
+    }
+
+    return list;
+  }, [matches, filterSearch, headerSearch, filterStage, filterDate, sortField]);
 
   const handleClaim = useCallback(
     async (matchId: string) => {
@@ -234,10 +288,11 @@ export const MatchesTableComponent: React.FC = () => {
 
   return (
     <div className="mxShell">
+      {/* Header — same pattern as My Predictions, with wallet */}
       <header className="mxTop">
         <div className="mxTop__row">
           <div className="mxTitle">
-            <h1>Matches</h1>
+            <h1>⚽ All Matches</h1>
             <p>Browse markets, live scores, pools, and predict outcomes.</p>
           </div>
 
@@ -254,38 +309,75 @@ export const MatchesTableComponent: React.FC = () => {
               />
             </div>
 
-            <div className="mxShortcuts">
-              <button className="mxBtn mxBtn--soft" onClick={() => navigate('/my-predictions')} type="button">
-                My Predictions
-              </button>
-              <button className="mxBtn mxBtn--soft" onClick={() => navigate('/leaderboards')} type="button">
-                Leaderboard
-              </button>
-              <button className="mxBtn mxBtn--soft" onClick={() => navigate('/final-prizes')} type="button">
-                Final Prize
-              </button>
+            {/* Wallet display — same as My Predictions */}
+            <div className="mxWalletWrap">
+              <StyledWallet />
             </div>
           </div>
         </div>
 
         <div className="mxTabs" role="tablist" aria-label="Tournament tabs">
-          <button
-            className={'mxTab ' + (tab === 'wc' ? 'is-active' : '')}
-            onClick={() => setTab('wc')}
-            type="button"
-            role="tab">
+          <button className="mxTab is-active" type="button" role="tab">
             World Cup 2026
           </button>
         </div>
 
-        <div className="mxInfo">
-          <div className="mxInfo__left">
-            <span className="mxPill">Bet closes 10m before kickoff</span>
+        {/* Filters row */}
+        <div className="mxFilters">
+          <div className="mxFilters__left">
+            <span className="mxPill">Prediction closes 10m before kickoff</span>
             <span className="mxPill">75% Match / 20% Final / 5% DAO</span>
             <span className="mxPill">On-chain pools</span>
             <span className="mxPill mxPill--live">LIVE</span>
           </div>
-          <div className="mxInfo__right">
+          <div className="mxFilters__right">
+            {/* Sort */}
+            <select
+              className="mxFilterSelect"
+              value={sortField}
+              onChange={(e) => setSortField(e.target.value as SortField)}
+              aria-label="Sort by">
+              <option value="match_id">Sort: Match #</option>
+              <option value="date">Sort: Date</option>
+            </select>
+
+            {/* Stage filter */}
+            <select
+              className="mxFilterSelect"
+              value={filterStage}
+              onChange={(e) => setFilterStage(e.target.value)}
+              aria-label="Filter by stage">
+              <option value="">All Stages</option>
+              {phases.map((p) => (
+                <option key={p} value={p}>{p.replace(/_/g, ' ')}</option>
+              ))}
+            </select>
+
+            {/* Date filter */}
+            <input
+              className="mxFilterDate"
+              type="date"
+              value={filterDate}
+              onChange={(e) => setFilterDate(e.target.value)}
+              aria-label="Filter by date"
+              title="Filter by date"
+            />
+
+            {/* Clear filters */}
+            {(filterStage || filterDate || filterSearch || headerSearch) && (
+              <button
+                className="mxBtn mxBtn--ghost"
+                type="button"
+                onClick={() => {
+                  setFilterStage('');
+                  setFilterDate('');
+                  setFilterSearch('');
+                  setHeaderSearch('');
+                }}>
+                Clear
+              </button>
+            )}
+
             <button className="mxBtn mxBtn--ghost" type="button" onClick={fetchMatches}>
               Refresh
             </button>
@@ -341,6 +433,7 @@ export const MatchesTableComponent: React.FC = () => {
                       {r.label !== 'FINAL' ? <span className="mxPill">{closesLabel(m.kick_off)}</span> : null}
 
                       {r.label === 'FINAL' ? (
+                        /* Claim button — yellow/flashing as in My Predictions */
                         <button
                           className="mxBtn mxBtn--claim"
                           onClick={() => handleClaim(m.match_id)}
@@ -351,7 +444,7 @@ export const MatchesTableComponent: React.FC = () => {
                       ) : (
                         <button
                           className="mxBtn mxBtn--primary"
-                          onClick={() => navigate(`/match/${m.match_id}`)}
+                          onClick={() => navigate(`/2026worldcup/match/${m.match_id}`)}
                           type="button">
                           Predict
                         </button>
@@ -364,9 +457,9 @@ export const MatchesTableComponent: React.FC = () => {
                   <div className="mxCard__mid">
                     <div className="mxMeta">
                       <span className="mxMeta__chip">#{m.match_id}</span>
-                      <span className="mxMeta__chip">{m.phase}</span>
+                      <span className="mxMeta__chip">{m.phase.replace(/_/g, ' ')}</span>
                       <span className="mxMeta__chip">{formatDatetime(m.kick_off)}</span>
-                      <span className="mxMeta__chip">{m.has_bets ? 'Has bets ✓' : 'No bets'}</span>
+                      <span className="mxMeta__chip">{m.has_bets ? 'Has predictions ✓' : 'No predictions'}</span>
                       <span className="mxMeta__chip">Pool: {totalPoolHuman} VARA</span>
                     </div>
 
@@ -391,15 +484,9 @@ export const MatchesTableComponent: React.FC = () => {
                       <div className="mxActions">
                         <button
                           className="mxBtn mxBtn--soft"
-                          onClick={() => navigate(`/match/${m.match_id}`)}
+                          onClick={() => navigate(`/2026worldcup/match/${m.match_id}`)}
                           type="button">
                           Details
-                        </button>
-                        <button
-                          className="mxBtn mxBtn--ghost"
-                          onClick={() => navigate(`/match/${m.match_id}`)}
-                          type="button">
-                          View
                         </button>
                       </div>
                     </div>
@@ -409,9 +496,18 @@ export const MatchesTableComponent: React.FC = () => {
             })}
           </div>
         ) : (
-          <div className="mxEmpty">No matches registered.</div>
+          <div className="mxEmpty">No matches found.</div>
         )}
       </div>
+
+      {/* View all matches CTA at bottom */}
+      {!loading && filteredMatches.length > 0 && (
+        <div style={{ textAlign: 'center', padding: '16px 0' }}>
+          <button className="mxBtn mxBtn--ghost" type="button" onClick={fetchMatches}>
+            Refresh
+          </button>
+        </div>
+      )}
     </div>
   );
 };

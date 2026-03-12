@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import styled from 'styled-components';
-import { useAccount, useAlert, useApi } from '@gear-js/react-hooks';
+import { useAccount, useApi } from '@gear-js/react-hooks';
+import { useToast } from '@/hooks/useToast';
 import { web3Enable, web3FromSource } from '@polkadot/extension-dapp';
 import { Program, Service } from '@/hocs/lib';
 import { TransactionBuilder } from 'sails-js';
@@ -345,7 +346,7 @@ function formatKickoff(kickOff?: string) {
 export function FinalizeResultContainer() {
   const { api, isApiReady } = useApi();
   const { account } = useAccount();
-  const alert = useAlert();
+  const toast = useToast();
 
   const [loading, setLoading] = useState(false);
   const [finalizingId, setFinalizingId] = useState<string | null>(null);
@@ -379,11 +380,11 @@ export function FinalizeResultContainer() {
     } catch (e) {
       console.error('fetchMatches error', e);
       setMatches([]);
-      alert.error('Failed to read matches from queryState');
+      toast.error('Failed to read matches from queryState');
     } finally {
       setLoading(false);
     }
-  }, [api, isApiReady, alert]);
+  }, [api, isApiReady, toast]);
 
   useEffect(() => {
     void fetchMatches();
@@ -410,15 +411,15 @@ export function FinalizeResultContainer() {
   const finalizeOne = useCallback(
     async (matchId: string) => {
       if (!connected) {
-        alert.error('Connect your wallet first');
+        toast.error('Connect your wallet first');
         return;
       }
       if (!api || !isApiReady) {
-        alert.error('Node API not ready');
+        toast.error('Node API not ready');
         return;
       }
       if (!PROGRAM_ID) {
-        alert.error('Missing env: VITE_BOLAOCOREPROGRAM');
+        toast.error('Missing env: VITE_BOLAOCOREPROGRAM');
         return;
       }
 
@@ -433,14 +434,14 @@ export function FinalizeResultContainer() {
 
         await tx.calculateGas();
         const { blockHash, response } = await tx.signAndSend();
-        alert.info(`Included in block ${blockHash}`);
+        toast.info(`Included in block ${blockHash}`);
         await response();
 
-        alert.success(`Match #${matchId} finalized ✅`);
+        toast.success(`Match #${matchId} finalized ✅`);
         await fetchMatches();
       } catch (e) {
         console.error(e);
-        alert.error('Failed to finalize result');
+        toast.error('Failed to finalize result');
       } finally {
         setFinalizingId(null);
       }

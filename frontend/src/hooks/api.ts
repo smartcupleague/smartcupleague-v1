@@ -1,9 +1,9 @@
 import { ProgramMetadata } from '@gear-js/api';
-import { useAlert } from '@gear-js/react-hooks';
 import { useEffect, useState } from 'react';
+import { useToast } from './useToast';
 
 function useProgramMetadata(source: string) {
-  const alert = useAlert();
+  const toast = useToast();
 
   const [metadata, setMetadata] = useState<ProgramMetadata>();
 
@@ -13,7 +13,7 @@ function useProgramMetadata(source: string) {
       .then((raw) => `0x${raw}`)
       .then((metaHex) => ProgramMetadata.from(metaHex))
       .then((result) => setMetadata(result))
-      .catch(({ message }: Error) => alert.error(message));
+      .catch(({ message }: Error) => toast.error(message));
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

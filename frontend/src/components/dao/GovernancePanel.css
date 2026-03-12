@@ -835,3 +835,18 @@
     min-width: 180px;
   }
 }
+
+/* DAO footer link styles */
+.gov__footerSep {
+  color: rgba(255, 255, 255, 0.25);
+  margin: 0 2px;
+}
+.gov__footerLink {
+  color: rgba(255, 255, 255, 0.5);
+  text-decoration: none;
+  transition: color 140ms;
+}
+.gov__footerLink:hover {
+  color: #ff4f9c;
+  text-decoration: underline;
+}

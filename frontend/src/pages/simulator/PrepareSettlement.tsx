@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import styled, { keyframes } from 'styled-components';
-import { useAccount, useAlert, useApi } from '@gear-js/react-hooks';
+import { useAccount, useApi } from '@gear-js/react-hooks';
+import { useToast } from '@/hooks/useToast';
 import { web3Enable, web3FromSource } from '@polkadot/extension-dapp';
 import { TransactionBuilder } from 'sails-js';
 import { Program, Service } from '@/hocs/lib';
@@ -463,7 +464,7 @@ function toKickoffLabel(kick_off: string | number) {
 
 export const PrepareSettlementComponent: React.FC = () => {
   const { account } = useAccount();
-  const alert = useAlert();
+  const toast = useToast();
   const { api, isApiReady } = useApi();
 
   const [loading, setLoading] = useState(false);
@@ -514,17 +515,17 @@ export const PrepareSettlementComponent: React.FC = () => {
 
     if (!connected) {
       setErrMsg('Connect your wallet first.');
-      alert.error('Connect your wallet first.');
+      toast.error('Connect your wallet first.');
       return;
     }
     if (!api || !isApiReady) {
       setErrMsg('Node API not ready');
-      alert.error('Node API not ready');
+      toast.error('Node API not ready');
       return;
     }
     if (!selectedMatchId) {
       setErrMsg('Select a match to prepare settlement');
-      alert.error('Select a match first');
+      toast.error('Select a match first');
       return;
     }
 
@@ -540,10 +541,10 @@ export const PrepareSettlementComponent: React.FC = () => {
       await tx.calculateGas();
       const { blockHash, response } = await tx.signAndSend();
 
-      alert.info(`Settlement preparation included in block ${blockHash}`);
+      toast.info(`Settlement preparation included in block ${blockHash}`);
       await response();
 
-      alert.success('Settlement prepared!');
+      toast.success('Settlement prepared!');
       setOkMsg('Settlement prepared successfully!');
       setSelectedMatchId(null);
       await fetchMatches();
@@ -551,7 +552,7 @@ export const PrepareSettlementComponent: React.FC = () => {
       console.error(err);
       const m = err?.message ?? 'Settlement preparation failed';
       setErrMsg(m);
-      alert.error(m);
+      toast.error(m);
     } finally {
       setLoading(false);
     }

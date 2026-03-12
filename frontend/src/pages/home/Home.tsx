@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import './dashboard.css';
-import { useAccount, useApi, useAlert } from '@gear-js/react-hooks';
+import { useAccount, useApi } from '@gear-js/react-hooks';
+import { useToast } from '@/hooks/useToast';
 import { web3Enable } from '@polkadot/extension-dapp';
 import { decodeAddress } from '@polkadot/util-crypto';
 import { u8aToHex } from '@polkadot/util';
@@ -9,6 +10,10 @@ import { Program as CoreProgram, Service as CoreService } from '@/hocs/lib';
 import { Program as DaoProgram, Service as DaoService } from '@/hocs/dao';
 import { TEAM_FLAGS } from '@/utils/teams';
 import { StyledWallet } from '@/components/wallet/Wallet';
+import { useNavigate } from 'react-router-dom';
+import { useOnboarding } from '@/hooks/useOnboarding';
+import { OnboardingModal } from '@/components/onboarding/OnboardingModal';
+import { AppFooter } from '@/components/layout/footer/AppFooter';
 
 const CORE_PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as string;
 const DAO_PROGRAM_ID = import.meta.env.VITE_DAOPROGRAM as string;
@@ -165,15 +170,17 @@ function timeFromNow(msLike: number) {
   return diff >= 0 ? `in ${label}` : `${label} ago`;
 }
 
-function toHMS(msLike: number) {
+function closesLabel(msLike: number) {
   const ms = kickOffToMs(msLike);
   if (!ms) return '—';
-  const diff = Math.max(0, ms - Date.now());
-  const s = Math.floor(diff / 1000);
-  const hh = String(Math.floor(s / 3600)).padStart(2, '0');
-  const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
-  const ss = String(s % 60).padStart(2, '0');
-  return `${hh}:${mm}:${ss}`;
+  const closesAt = ms - 10 * 60 * 1000;
+  const diff = closesAt - Date.now();
+  if (diff <= 0) return 'Closed';
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `Closes in ${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  const rem = mins % 60;
+  return `Closes in ${hrs}h ${rem}m`;
 }
 
 function isFinalized(m: CoreMatch) {
@@ -208,8 +215,13 @@ function TeamFlag({ team }: { team: string }) {
 
 export default function Home() {
   const { api, isApiReady } = useApi();
-  const alert = useAlert();
+  const toast = useToast();
   const { account } = useAccount();
+  const navigate = useNavigate();
+  const onboarding = useOnboarding();
+
+  // Show onboarding modal when wallet connects for the first time
+  const showOnboarding = !!account && !onboarding.accepted;
 
   const myWalletHex = useMemo(() => {
     const addr = account?.decodedAddress ?? (account as any)?.address ?? null;
@@ -313,11 +325,11 @@ export default function Home() {
       await Promise.all([fetchCoreState(), fetchDaoProposals()]);
     } catch (e) {
       console.error(e);
-      alert.error('Failed to load home data');
+      toast.error('Failed to load home data');
     } finally {
       setLoading(false);
     }
-  }, [isApiReady, fetchCoreState, fetchDaoProposals, alert]);
+  }, [isApiReady, fetchCoreState, fetchDaoProposals, toast]);
 
   useEffect(() => {
     void fetchAll();
@@ -354,6 +366,7 @@ export default function Home() {
     const finalPrizeBn = safeBigInt(coreState?.final_prize_accum ?? 0);
     const feeBn = safeBigInt(coreState?.fee_accum ?? 0);
     const withBets = matches.filter((m) => m.has_bets).length;
+    const totalPredictions = matches.reduce((acc, m) => acc + (m.participants?.length ?? 0), 0);
 
     return {
       allPoolsText: formatTokenCompact(allPoolsBn),
@@ -361,6 +374,7 @@ export default function Home() {
       feeText: formatTokenCompact(feeBn),
       matchesWithBets: withBets,
       totalMatches: matches.length,
+      totalPredictions,
     };
   }, [coreState]);
 
@@ -371,15 +385,13 @@ export default function Home() {
       .sort((a, b) => kickOffToMs(Number(b.kick_off)) - kickOffToMs(Number(a.kick_off)));
   }, [coreState]);
 
-  const lastMatchPointsLine = useMemo(() => {
-    const last = finalizedMatches[0];
-    if (!last) return '—';
-    const phase = (last.phase || '').replace(/_/g, ' ');
-    const date = formatDate(Number(last.kick_off));
-    const outcome = (last.result as any)?.finalized?.outcome ?? (last.result as any)?.Finalized?.outcome ?? null;
-    const pointsStub = '+3 points';
-    return `${last.home} vs ${last.away} • ${phase} • ${date}${outcome ? ` • ${outcome}` : ''} • ${pointsStub}`;
-  }, [finalizedMatches]);
+  const lastMatch = finalizedMatches[0] ?? null;
+  const lastMatchLine = useMemo(() => {
+    if (!lastMatch) return '—';
+    const date = formatDate(Number(lastMatch.kick_off));
+    const time = formatTime(Number(lastMatch.kick_off));
+    return `${lastMatch.home} vs ${lastMatch.away} · ${date} ${time}`;
+  }, [lastMatch]);
 
   const upcoming = useMemo(() => {
     const matches = coreState?.matches ?? [];
@@ -397,22 +409,14 @@ export default function Home() {
     return { predicted, total, pct };
   }, [poolsInfo.totalMatches, finalizedMatches.length]);
 
-  const bonus = useMemo(() => {
-    const deadline = nextMatch ? kickOffToMs(Number(nextMatch.kick_off)) : 0;
-    const countdown = deadline ? toHMS(deadline) : '—';
-    const qualifies = predictedProgress.total ? predictedProgress.pct >= 50 : false;
-    return { qualifies, countdown };
-  }, [nextMatch, predictedProgress.total, predictedProgress.pct]);
-
   const governance = useMemo(() => {
     const active = daoProposals.filter((p) => (p.status ?? '').toLowerCase() === 'active');
     const last = [...daoProposals].sort((a, b) => b.id - a.id)[0] ?? null;
     return { activeCount: active.length, last };
   }, [daoProposals]);
 
-  const leaderboardTop3 = useMemo(() => {
-    const rows = sortedLeaderboard.slice(0, 3);
-    return rows.map((r, idx) => ({
+  const leaderboardTop = useMemo(() => {
+    return sortedLeaderboard.slice(0, 5).map((r, idx) => ({
       rank: idx + 1,
       full: r.wallet,
       addr: shortHex(r.wallet),
@@ -420,20 +424,19 @@ export default function Home() {
     }));
   }, [sortedLeaderboard]);
 
-  const phaseWeight = useMemo(() => {
-    const p = (nextMatch?.phase ?? '').toLowerCase();
-    if (!p) return '—';
-    if (p.includes('final')) return 'x5';
-    if (p.includes('semi')) return 'x4';
-    if (p.includes('quarter')) return 'x3';
-    if (p.includes('round')) return 'x2';
-    return 'x1';
-  }, [nextMatch?.phase]);
-
   const usdcLabel = 'VARA';
+
+  // Next match closes label
+  const nextMatchCloses = useMemo(() => {
+    if (!nextMatch) return '—';
+    return closesLabel(Number(nextMatch.kick_off));
+  }, [nextMatch]);
 
   return (
     <div className="h-dash">
+      {/* First-time onboarding modal */}
+      {showOnboarding && <OnboardingModal onAccept={onboarding.accept} />}
+
       <div className="h-bg" aria-hidden="true" />
 
       <header className="h-topbar">
@@ -456,7 +459,7 @@ export default function Home() {
 
       {/* MAIN GRID */}
       <main className="h-grid">
-        {/* Your SmartCup Status */}
+        {/* ── 1. Your SmartCup Status ──────────────────────────────── */}
         <section className="h-card h-card--status">
           <div className="h-card__head">
             <h3>Your SmartCup Status</h3>
@@ -466,23 +469,22 @@ export default function Home() {
             <div className="h-status__top">
               <div className="h-status__tournament">{tournamentName}</div>
 
-              <div className="h-rank">
+              {/* PRIMARY: Rank position */}
+              <div className="h-rank h-rank--primary">
+                <div className="h-rank__trophy" aria-hidden="true">🏆</div>
                 <div className="h-rank__main">
                   <span className="h-rank__no">{myRankInfo.rank ? `#${myRankInfo.rank}` : '—'}</span>
                   <span className="h-rank__all">/ {coreState ? myRankInfo.totalPlayers : '—'}</span>
                 </div>
-                <div className="h-rank__hint">Rank from CORE</div>
+                <div className="h-rank__hint">Rank Position</div>
               </div>
             </div>
 
             <div className="h-status__mid">
-              <div className="h-badge">
-                <span className="h-badge__icon">🏅</span>
-              </div>
-
-              <div className="h-points">
+              {/* SECONDARY: Points */}
+              <div className="h-points h-points--featured">
                 <div className="h-points__value">{myRankInfo.points}</div>
-                <div className="h-points__label">match points</div>
+                <div className="h-points__label">Points</div>
               </div>
 
               <div className="h-wallet">
@@ -493,21 +495,19 @@ export default function Home() {
 
             <div className="h-kv">
               <div className="h-kv__row">
-                <span className="muted">Last match points accumulated</span>
-                <span className="h-kv__value">{lastMatchPointsLine}</span>
+                <span className="muted">Last match:</span>
+                <span className="h-kv__value">{lastMatchLine}</span>
               </div>
 
               <div className="h-kv__row">
-                <span className="muted">Matches predicted</span>
+                <span className="muted">Predictions made</span>
                 <span className="h-kv__value">
-                  {predictedProgress.predicted} / {predictedProgress.total} • {predictedProgress.pct}%
-                </span>
-              </div>
-
-              <div className="h-kv__row">
-                <span className="muted">Participation in Tournament Bonus</span>
-                <span className="h-kv__value">
-                  {bonus.qualifies ? 'Yes' : 'No'} • deadline {bonus.countdown}
+                  {/* TODO: exact scores and correct outcomes require per-user detailed data from contract */}
+                  {predictedProgress.predicted}/{predictedProgress.total}
+                  {' · '}
+                  <span title="Exact scores — data coming from contract">— exact</span>
+                  {' · '}
+                  <span title="Correct outcomes — data coming from contract">— correct</span>
                 </span>
               </div>
 
@@ -515,67 +515,98 @@ export default function Home() {
                 <span className="muted">Distance to next rank</span>
                 <span className="h-kv__value">
                   {distanceToNext
-                    ? `You are ${distanceToNext.gap} points to reach #${distanceToNext.targetRank} • ${shortHex(
-                        distanceToNext.targetAddr,
-                      )}`
+                    ? `You're ${distanceToNext.gap} points behind #${distanceToNext.targetRank} · ${shortHex(distanceToNext.targetAddr)}`
                     : '—'}
                 </span>
               </div>
             </div>
 
             <div className="h-card__foot">
-              <button className="h-btn h-btn--soft" type="button">
+              <button className="h-btn h-btn--soft" type="button" onClick={() => navigate('/leaderboards')}>
                 View full Leaderboard →
               </button>
             </div>
           </div>
         </section>
 
-        {/* Your Betting Performance */}
+        {/* ── 2. Your Prediction Performance ──────────────────────── */}
         <section className="h-card h-card--perf">
           <div className="h-card__head">
-            <h3>Your Betting Performance</h3>
+            <h3>Your Prediction Performance</h3>
           </div>
 
           <div className="h-perf h-perf--compact">
             <div className="h-perf__kpis">
               <div className="h-kpi h-kpi--wide">
-                <div className="h-kpi__label">Total Pool (all matches)</div>
+                <div className="h-kpi__label">Total Predicted</div>
                 <div className="h-kpi__value">
-                  {coreState ? poolsInfo.allPoolsText : '—'} <span className="muted">{usdcLabel}</span>
+                  {/* TODO: requires per-user prediction total from contract */}
+                  {coreState ? `${predictedProgress.predicted} / ${predictedProgress.total}` : '—'}
                 </div>
               </div>
 
               <div className="h-kpi">
-                <div className="h-kpi__label">Matches w/ Bets</div>
-                <div className="h-kpi__value">{coreState ? `${poolsInfo.matchesWithBets} matches` : '—'}</div>
+                <div className="h-kpi__label">Total Earned</div>
+                <div className="h-kpi__value">
+                  {/* TODO: requires per-user earnings total from contract */}
+                  — <span className="muted">{usdcLabel}</span>
+                </div>
               </div>
 
               <div className="h-kpi">
-                <div className="h-kpi__label">Fee Accum</div>
+                <div className="h-kpi__label">Net Performance</div>
                 <div className="h-kpi__value">
-                  {coreState ? poolsInfo.feeText : '—'} <span className="muted">{usdcLabel}</span>
+                  {/* TODO: requires per-user net calculation from contract */}
+                  —
                 </div>
               </div>
             </div>
 
-            <div className="h-perf__bar">
-              <div className="h-pill mono">Owner: {coreState ? shortHex(coreState.owner) : '—'}</div>
-              <div className="h-pill mono">KYC: {coreState ? shortHex(coreState.kyc_contract) : '—'}</div>
-              <button className="h-btn h-btn--primary" type="button">
-                Place Bet
-              </button>
-            </div>
+            {/* Next Match to Predict */}
+            {nextMatch && (
+              <div className="h-next-match">
+                <div className="h-next-match__head">
+                  <span className="h-next-match__label">Next Match to Predict:</span>
+                </div>
+                <div className="h-next-match__info">
+                  <span className="h-next-match__teams">
+                    {nextMatch.home} vs {nextMatch.away}
+                  </span>
+                  <span className="h-next-match__meta muted">
+                    {(nextMatch.phase || '').replace(/_/g, ' ')}
+                    {' · '}
+                    {formatDateTime(Number(nextMatch.kick_off))}
+                  </span>
+                  <span className="h-next-match__closes muted">{nextMatchCloses}</span>
+                </div>
+                <div className="h-next-match__actions">
+                  <button
+                    className="h-btn h-btn--primary"
+                    type="button"
+                    onClick={() => navigate(`/2026worldcup/match/${nextMatch.match_id}`)}>
+                    Predict now
+                  </button>
+                  <button
+                    className="h-btn h-btn--ghost"
+                    type="button"
+                    onClick={() => navigate('/all-matches')}>
+                    View all matches →
+                  </button>
+                </div>
+              </div>
+            )}
 
-            <div className="h-card__foot">
-              <button className="h-btn h-btn--ghost" type="button">
-                View full matches →
-              </button>
-            </div>
+            {!nextMatch && (
+              <div className="h-card__foot">
+                <button className="h-btn h-btn--ghost" type="button" onClick={() => navigate('/all-matches')}>
+                  View all matches →
+                </button>
+              </div>
+            )}
           </div>
         </section>
 
-        {/* Final Prize Pool */}
+        {/* ── 3. Final Prize Pool ──────────────────────────────────── */}
         <section className="h-card h-card--prize">
           <div className="h-card__head">
             <h3>Final Prize Pool</h3>
@@ -583,29 +614,21 @@ export default function Home() {
 
           <div className="h-prize">
             <div className="h-prize__big">
+              <span className="h-prize__cup" aria-hidden="true">⚽</span>
               <div className="h-prize__value">{coreState ? poolsInfo.finalPrizeText : '—'}</div>
               <div className="h-prize__unit">{usdcLabel}</div>
             </div>
 
             <div className="h-prize__rows">
               <div className="h-row">
-                <span className="muted">Number of predictions made</span>
-                <span>{coreState ? poolsInfo.matchesWithBets : '—'}</span>
-              </div>
-              <div className="h-row">
-                <span className="muted">Accumulated value with match bets</span>
-                <span>{coreState ? `${poolsInfo.allPoolsText} ${usdcLabel}` : '—'}</span>
-              </div>
-              <div className="h-row">
-                <span className="muted">Accumulated value with dust</span>
-                <span>—</span>
+                <span className="muted">Predictions made</span>
+                <span>{coreState ? poolsInfo.totalPredictions.toLocaleString() : '—'}</span>
               </div>
             </div>
 
-            <div className="h-prize__note muted">Top 5% players will win after the final match</div>
+            <div className="h-prize__note muted">Top 5 players will win after the final match</div>
 
             <div className="h-split">
-              <div className="h-split__label muted">Distribution</div>
               <div className="h-split__bar" aria-label="Distribution 45 25 20 10 5">
                 <span style={{ width: '45%' }} />
                 <span style={{ width: '25%' }} />
@@ -623,41 +646,48 @@ export default function Home() {
             </div>
 
             <div className="h-prize__cta">
-              <button className="h-btn h-btn--soft h-btn--block" type="button" onClick={fetchAll}>
-                Refresh on-chain state
-              </button>
               <button className="h-btn h-btn--primary h-btn--block" type="button">
-                Claim prize
+                Claim Prize
               </button>
             </div>
 
-            <div className="h-prize__trophy" aria-hidden="true">
-              🏆
-            </div>
           </div>
         </section>
 
-        {/* Extras */}
+        {/* ── 4. World Cup 2026 Leaderboard ─────────────────────────── */}
         <section className="h-card h-card--leader">
           <div className="h-card__head">
             <h3>{tournamentName} Leaderboard</h3>
           </div>
 
           <div className="h-table">
-            {leaderboardTop3.map((r) => (
+            {/* Table header */}
+            <div className="h-thead">
+              <div className="h-th h-th--rank">Pos.</div>
+              <div className="h-th">Address</div>
+              <div className="h-th h-th--num">Matches</div>
+              <div className="h-th h-th--num">Exact</div>
+              <div className="h-th h-th--num">Outcome</div>
+              <div className="h-th h-th--num h-th--points">Points</div>
+            </div>
+
+            {leaderboardTop.map((r) => (
               <div className="h-trow" key={r.rank}>
                 <div className="h-tcell h-tcell--rank">#{r.rank}</div>
                 <div className="h-tcell mono" title={r.full}>
                   {r.addr}
                 </div>
+                {/* TODO: Matches/Exact/Outcome per user from contract */}
+                <div className="h-tcell h-tcell--num">—</div>
+                <div className="h-tcell h-tcell--num">—</div>
+                <div className="h-tcell h-tcell--num">—</div>
                 <div className="h-tcell h-tcell--points">
                   <span className="h-pts">{r.points}</span>
-                  <span className="muted">Points</span>
                 </div>
               </div>
             ))}
 
-            {!leaderboardTop3.length ? (
+            {!leaderboardTop.length ? (
               <div className="h-trow">
                 <div className="h-tcell muted">No data</div>
               </div>
@@ -665,6 +695,7 @@ export default function Home() {
           </div>
         </section>
 
+        {/* ── 5. Protocol Activity ──────────────────────────────────── */}
         <section className="h-card h-card--activity">
           <div className="h-card__head">
             <h3>Protocol Activity</h3>
@@ -672,7 +703,7 @@ export default function Home() {
 
           <div className="h-activity">
             <div className="h-ok">
-              <span className="h-ok__dot" />
+              <span className={'h-ok__dot' + (loading ? ' h-ok__dot--syncing' : '')} />
               <span>{loading ? 'Syncing on-chain…' : 'All systems operational'}</span>
             </div>
 
@@ -681,26 +712,38 @@ export default function Home() {
                 <span className="h-alist__ico">🗓️</span>
                 <div>
                   <div className="h-alist__title">
-                    Next kickoff <span className="muted">• {nextMatch ? timeFromNow(Number(nextMatch.kick_off)) : '—'}</span>
+                    Next kick-off <span className="muted">• {nextMatch ? timeFromNow(Number(nextMatch.kick_off)) : '—'}</span>
                   </div>
                   <div className="h-alist__sub muted">{nextMatch ? formatDateTime(Number(nextMatch.kick_off)) : '—'}</div>
                 </div>
               </div>
 
               <div className="h-alist">
-                <span className="h-alist__ico">🗳️</span>
+                <span className="h-alist__ico">⚽</span>
                 <div>
-                  <div className="h-alist__title">
-                    Governance <span className="muted">• {governance.activeCount} active</span>
-                  </div>
+                  <div className="h-alist__title">Last match settled</div>
                   <div className="h-alist__sub muted">
-                    {governance.last ? `Latest proposal #${governance.last.id} • ${governance.last.description}` : 'No proposals yet'}
+                    {lastMatch ? `${lastMatch.home} vs ${lastMatch.away} · ${formatDate(Number(lastMatch.kick_off))}` : '—'}
                   </div>
                 </div>
               </div>
 
               <div className="h-alist">
-                <span className="h-alist__ico">💧</span>
+                <span className="h-alist__ico">🏛️</span>
+                <div>
+                  <div className="h-alist__title">
+                    Governance <span className="muted">• {governance.activeCount} active</span>
+                  </div>
+                  <div className="h-alist__sub muted">
+                    {governance.last
+                      ? `Latest proposal #${governance.last.id} · ${governance.last.description}`
+                      : 'No proposals yet'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="h-alist">
+                <span className="h-alist__ico">💎</span>
                 <div>
                   <div className="h-alist__title">
                     Total Pool <span className="muted">• {coreState ? `${poolsInfo.allPoolsText} ${usdcLabel}` : '—'}</span>
@@ -709,12 +752,26 @@ export default function Home() {
                 </div>
               </div>
             </div>
+
+            {/* Refresh on-chain state moved here from Final Prize Pool */}
+            <div className="h-activity__foot">
+              <button className="h-btn h-btn--soft" type="button" onClick={fetchAll}>
+                ⟳ Refresh on-chain state
+              </button>
+            </div>
           </div>
         </section>
 
+        {/* ── 6. Upcoming matches ──────────────────────────────────── */}
         <section className="h-card h-card--matches">
-          <div className="h-card__head">
-            <h3>Next match to predict</h3>
+          <div className="h-card__head h-card__head--row">
+            <h3>Upcoming matches</h3>
+            <button
+              className="h-btn h-btn--ghost h-btn--sm"
+              type="button"
+              onClick={() => navigate('/all-matches')}>
+              View full matches →
+            </button>
           </div>
 
           <div className="h-matches">
@@ -733,11 +790,15 @@ export default function Home() {
                     </span>
                   </div>
                   <div className="h-match__meta muted">
-                    {(m.phase || '').replace(/_/g, ' ')} <span className="h-dot">•</span> {formatDateTime(Number(m.kick_off))}
+                    {(m.phase || '').replace(/_/g, ' ')} <span className="h-dot">•</span>{' '}
+                    {formatDateTime(Number(m.kick_off))}
                   </div>
                 </div>
 
-                <button className="h-btn h-btn--soft" type="button">
+                <button
+                  className="h-btn h-btn--soft"
+                  type="button"
+                  onClick={() => navigate(`/2026worldcup/match/${m.match_id}`)}>
                   Predict Now
                 </button>
               </div>
@@ -748,7 +809,9 @@ export default function Home() {
         </section>
       </main>
 
-      <div className="muted tiny" style={{ padding: '10px 0', textAlign: 'center' }}>
+      <AppFooter />
+
+      <div className="muted tiny" style={{ padding: '4px 0 10px', textAlign: 'center' }}>
         {!CORE_PROGRAM_ID ? 'Missing env: VITE_BOLAOCOREPROGRAM' : null}
         {!DAO_PROGRAM_ID ? (CORE_PROGRAM_ID ? 'Missing env: VITE_DAOPROGRAM' : ' • Missing env: VITE_DAOPROGRAM') : null}
       </div>

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import styled, { keyframes } from "styled-components";
-import { useAccount, useAlert, useApi } from "@gear-js/react-hooks";
+import { useAccount, useApi } from "@gear-js/react-hooks";
+import { useToast } from "@/hooks/useToast";
 import { web3Enable, web3FromSource } from "@polkadot/extension-dapp";
 import { TransactionBuilder } from "sails-js";
 import { Program, Service } from "@/hocs/dao";
@@ -8,14 +9,31 @@ import type { ProposalKind } from "@/hocs/dao";
 
 const PROGRAM_ID = import.meta.env.VITE_DAOPROGRAM;
 
+// Human-readable proposal categories per spec
+// These are UI labels that map to the underlying contract proposal kinds
+const PROPOSAL_CATEGORY_LABELS: Record<string, string> = {
+  SetFeeBps: "Protocol Parameter Update — Set Fee (BPS)",
+  SetFinalPrizeBps: "Protocol Parameter Update — Set Final Prize (BPS)",
+  SetMaxPayoutChunk: "Protocol Parameter Update — Set Max Payout Chunk",
+  AddPhase: "Create New Tournament — Add Phase",
+  AddMatch: "Create New Tournament — Add Match",
+  SetQuorum: "Governance Parameter Update — Set Quorum (BPS)",
+  SetVotingPeriod: "Governance Parameter Update — Set Voting Period (seconds)",
+};
+
 const PROPOSAL_KIND_OPTIONS = [
-  { value: "SetFeeBps", label: "Set Fee (BPS)" },
-  { value: "SetFinalPrizeBps", label: "Set Final Prize (BPS)" },
-  { value: "SetMaxPayoutChunk", label: "Set Max Payout Chunk" },
-  { value: "AddPhase", label: "Add Phase" },
-  { value: "AddMatch", label: "Add Match" },
-  { value: "SetQuorum", label: "Set Quorum (BPS)" },
-  { value: "SetVotingPeriod", label: "Set Voting Period (seconds)" },
+  { value: "SetFeeBps", label: PROPOSAL_CATEGORY_LABELS.SetFeeBps },
+  { value: "SetFinalPrizeBps", label: PROPOSAL_CATEGORY_LABELS.SetFinalPrizeBps },
+  { value: "SetMaxPayoutChunk", label: PROPOSAL_CATEGORY_LABELS.SetMaxPayoutChunk },
+  { value: "AddPhase", label: PROPOSAL_CATEGORY_LABELS.AddPhase },
+  { value: "AddMatch", label: PROPOSAL_CATEGORY_LABELS.AddMatch },
+  { value: "SetQuorum", label: PROPOSAL_CATEGORY_LABELS.SetQuorum },
+  { value: "SetVotingPeriod", label: PROPOSAL_CATEGORY_LABELS.SetVotingPeriod },
+  // TODO: The following proposal types require additional backend support
+  // { value: "TreasuryFunding", label: "Treasury Funding Proposal" },
+  // { value: "ComplianceSafety", label: "Compliance & Safety Proposal" },
+  // { value: "Membership", label: "Membership Proposal" },
+  // { value: "Informational", label: "Informational / Signaling Proposal" },
 ] as const;
 
 type Kind =
@@ -297,7 +315,7 @@ const Spinner = styled.div`
 /* ---------- MAIN COMPONENT ---------- */
 export const CreateProposalComponent: React.FC = () => {
   const { account } = useAccount();
-  const alert = useAlert();
+  const toast = useToast();
   const { api, isApiReady } = useApi();
 
   const [loading, setLoading] = useState<Method | null>(null);
@@ -422,22 +440,22 @@ export const CreateProposalComponent: React.FC = () => {
         await tx.calculateGas();
         const { blockHash, response } = await tx.signAndSend();
 
-        alert.info(`Included in block ${blockHash}`);
+        toast.info(`Included in block ${blockHash}`);
         await response();
-        alert.success("Proposal created!");
+        toast.success("Proposal created!");
       } catch (err) {
         console.error(err);
-        alert.error("Proposal creation failed");
+        toast.error("Proposal creation failed");
       } finally {
         setLoading(null);
       }
     },
-    [account, alert]
+    [account, toast]
   );
 
   const handleCreate = async () => {
-    if (!account) return alert.error("Connect your wallet first");
-    if (!isApiReady) return alert.error("Node API not ready");
+    if (!account) return toast.error("Connect your wallet first");
+    if (!isApiReady) return toast.error("Node API not ready");
 
     const svc = new Service(new Program(api, PROGRAM_ID));
     try {
@@ -449,7 +467,7 @@ export const CreateProposalComponent: React.FC = () => {
       setKind("SetFeeBps");
     } catch (err) {
       console.error(err);
-      alert.error("Failed to build proposal transaction");
+      toast.error("Failed to build proposal transaction");
       setLoading(null);
     }
   };

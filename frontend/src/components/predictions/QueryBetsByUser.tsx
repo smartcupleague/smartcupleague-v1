@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import './my-predictions.css';
-import { useAccount, useAlert, useApi } from '@gear-js/react-hooks';
+import { useAccount, useApi } from '@gear-js/react-hooks';
+import { useToast } from '@/hooks/useToast';
 import { web3Enable, web3FromSource } from '@polkadot/extension-dapp';
 import { Program, Service } from '@/hocs/lib';
 import { TransactionBuilder } from 'sails-js';
@@ -234,7 +235,7 @@ function eligibleForPayout(
 
 export const QueryBetsByUserComponent: React.FC = () => {
   const { account } = useAccount();
-  const alert = useAlert();
+  const toast = useToast();
   const { api, isApiReady } = useApi();
 
   const [bets, setBets] = useState<ContractUserBetView[] | null>(null);
@@ -246,6 +247,9 @@ export const QueryBetsByUserComponent: React.FC = () => {
 
   const [tab, setTab] = useState<'wc'>('wc');
   const [search, setSearch] = useState('');
+  const [filterStage, setFilterStage] = useState('');
+  const [filterDate, setFilterDate] = useState('');
+  const [sortField, setSortField] = useState<'match_id' | 'date'>('match_id');
   const [claimingByMatch, setClaimingByMatch] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
@@ -318,11 +322,11 @@ export const QueryBetsByUserComponent: React.FC = () => {
       console.error('Failed to fetch Predictions:', err);
       setBets([]);
       setErrMsg('Failed to fetch your Predictions');
-      alert.error('Failed to fetch your Predictions');
+      toast.error('Failed to fetch your Predictions');
     } finally {
       setLoading(false);
     }
-  }, [api, isApiReady, account, alert]);
+  }, [api, isApiReady, account, toast]);
 
   useEffect(() => {
     if (isApiReady) void fetchState();
@@ -343,19 +347,64 @@ export const QueryBetsByUserComponent: React.FC = () => {
     return map;
   }, [matches]);
 
-  const wcBets = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const list = (bets ?? []) as ContractUserBetView[];
-    if (!q) return list;
+  // Unique phases for filter dropdown
+  const availablePhases = useMemo(() => {
+    const set = new Set<string>();
+    for (const m of matches ?? []) {
+      if (m.phase) set.add(m.phase);
+    }
+    return Array.from(set).sort();
+  }, [matches]);
 
-    return list.filter((b) => {
-      const pick = `${b.score.home}-${b.score.away}`;
-      const m = matchById.get(Number(b.match_id));
-      const teams = m ? `${m.home} ${m.away}` : '';
-      const s = `#${String(b.match_id)} ${teams} ${pick} ${b.claimed ? 'claimed' : 'pending'}`.toLowerCase();
-      return s.includes(q);
-    });
-  }, [bets, search, matchById]);
+  const wcBets = useMemo(() => {
+    let list = (bets ?? []) as ContractUserBetView[];
+
+    // Text search
+    const q = search.trim().toLowerCase();
+    if (q) {
+      list = list.filter((b) => {
+        const pick = `${b.score.home}-${b.score.away}`;
+        const m = matchById.get(Number(b.match_id));
+        const teams = m ? `${m.home} ${m.away}` : '';
+        const s = `#${String(b.match_id)} ${teams} ${pick} ${b.claimed ? 'claimed' : 'pending'}`.toLowerCase();
+        return s.includes(q);
+      });
+    }
+
+    // Stage filter
+    if (filterStage) {
+      list = list.filter((b) => {
+        const m = matchById.get(Number(b.match_id));
+        return m?.phase === filterStage;
+      });
+    }
+
+    // Date filter
+    if (filterDate) {
+      list = list.filter((b) => {
+        const m = matchById.get(Number(b.match_id));
+        if (!m) return false;
+        const n = Number(m.kick_off);
+        if (!n) return false;
+        const ms = n < 10_000_000_000 ? n * 1000 : n;
+        return new Date(ms).toISOString().slice(0, 10) === filterDate;
+      });
+    }
+
+    // Sort
+    if (sortField === 'date') {
+      list = [...list].sort((a, b) => {
+        const ma = matchById.get(Number(a.match_id));
+        const mb = matchById.get(Number(b.match_id));
+        return Number(ma?.kick_off ?? 0) - Number(mb?.kick_off ?? 0);
+      });
+    } else {
+      // Default: match #
+      list = [...list].sort((a, b) => Number(a.match_id) - Number(b.match_id));
+    }
+
+    return list;
+  }, [bets, search, matchById, filterStage, filterDate, sortField]);
 
   const claim = useCallback(
     async (matchId: number) => {
@@ -372,20 +421,20 @@ export const QueryBetsByUserComponent: React.FC = () => {
         await tx.calculateGas();
         const { blockHash, response } = await tx.signAndSend();
 
-        alert.info(`Transaction included in block ${blockHash}`);
+        toast.info(`Transaction included in block ${blockHash}`);
         await response();
 
-        alert.success('Claim completed!');
+        toast.success('Claim completed!');
         await fetchBets();
         await fetchState();
       } catch (e: any) {
         console.error('Claim failed', e);
-        alert.error(e?.message ?? 'Claim failed');
+        toast.error(e?.message ?? 'Claim failed');
       } finally {
         setClaimingByMatch((p) => ({ ...p, [matchId]: false }));
       }
     },
-    [api, isApiReady, account, alert, fetchBets, fetchState],
+    [api, isApiReady, account, toast, fetchBets, fetchState],
   );
 
   return (
@@ -433,10 +482,50 @@ export const QueryBetsByUserComponent: React.FC = () => {
         </div>
 
         <div className="mpHintbar">
-          <span className="mpPill">Bet closes 10m before kickoff</span>
+          <span className="mpPill">Prediction closes 10m before kickoff</span>
           <span className="mpPill">75% Match / 20% Final / 5% DAO</span>
           <span className="mpPill">On-chain pools</span>
           <span className="mpPill mpPill--live">LIVE</span>
+
+          {/* Sort + Stage + Date filters */}
+          <select
+            className="mpFilterSelect"
+            value={sortField}
+            onChange={(e) => setSortField(e.target.value as 'match_id' | 'date')}
+            aria-label="Sort predictions">
+            <option value="match_id">Sort: Match #</option>
+            <option value="date">Sort: Date</option>
+          </select>
+
+          <select
+            className="mpFilterSelect"
+            value={filterStage}
+            onChange={(e) => setFilterStage(e.target.value)}
+            aria-label="Filter by stage">
+            <option value="">All Stages</option>
+            {availablePhases.map((p) => (
+              <option key={p} value={p}>{p.replace(/_/g, ' ')}</option>
+            ))}
+          </select>
+
+          <input
+            className="mpFilterDate"
+            type="date"
+            value={filterDate}
+            onChange={(e) => setFilterDate(e.target.value)}
+            aria-label="Filter by date"
+            title="Filter by date"
+          />
+
+          {(filterStage || filterDate) && (
+            <button
+              className="mpIconBtn"
+              type="button"
+              title="Clear filters"
+              onClick={() => { setFilterStage(''); setFilterDate(''); }}>
+              ✕
+            </button>
+          )}
         </div>
       </header>
 

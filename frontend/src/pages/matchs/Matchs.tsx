@@ -2,15 +2,13 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import './match.css';
 import { MatchCard } from './MatchCard';
 import { Layout } from './Layout';
-import { Wallet } from '@gear-js/wallet-connect';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAccount, useApi } from '@gear-js/react-hooks';
 import { web3Enable } from '@polkadot/extension-dapp';
 import { Program, Service } from '@/hocs/lib';
 import { HexString } from '@gear-js/api';
 import { TEAM_FLAGS } from '@/utils/teams';
 import { StyledWallet } from '@/components/wallet/Wallet';
-import { Header } from '@/components';
 
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as string;
 
@@ -95,19 +93,12 @@ function getCurrentScore(result?: ResultStatus): { home: number; away: number } 
   return { home: 0, away: 0 };
 }
 
-type BetCurrency = 'VARA' | 'wUSDC' | 'wUSDT';
-
-type PredictionInput = {
-  home: string;
-  away: string;
-  pensHome: string;
-  pensAway: string;
-};
-
 function Match() {
+  // Support both /2026worldcup/match/:id and legacy /match/:id
   const { id: rawId } = useParams<{ id: string }>();
   const { api, isApiReady } = useApi();
   const { account } = useAccount();
+  const navigate = useNavigate();
 
   const matchId = useMemo(() => String(rawId ?? '').trim(), [rawId]);
 
@@ -115,26 +106,11 @@ function Match() {
   const [loadingState, setLoadingState] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [betAmount, setBetAmount] = useState<string>('10');
-  const [betCurrency, setBetCurrency] = useState<BetCurrency>('VARA');
-
-  const [pred, setPred] = useState<PredictionInput>({
-    home: '',
-    away: '',
-    pensHome: '',
-    pensAway: '',
-  });
-
-  const betAmountNumber = useMemo(() => {
-    const n = Number(String(betAmount).replace(',', '.'));
-    return Number.isFinite(n) ? n : 0;
-  }, [betAmount]);
-
   useEffect(() => {
     void (async () => {
       try {
         await web3Enable('Vara Bolao Match Page');
-      } catch {}
+      } catch { }
     })();
   }, []);
 
@@ -232,19 +208,13 @@ function Match() {
     return null;
   }, [matchId, selectedMatch, currentScoreText, currentScore]);
 
-  const addressMock = formatAddress(account?.decodedAddress);
-  const positionMock = '#10';
-  const pointsMock = '55';
+  const addressDisplay = formatAddress(account?.decodedAddress);
+  // TODO: position and points should come from on-chain state for this user
+  const positionMock = '#—';
+  const pointsMock = '—';
 
   const homeName = selectedMatch?.home ?? '—';
   const awayName = selectedMatch?.away ?? '—';
-
-  const isTiePrediction = useMemo(() => {
-    const h = pred.home === '' ? null : Number(pred.home);
-    const a = pred.away === '' ? null : Number(pred.away);
-    if (h === null || a === null) return false;
-    return Number.isFinite(h) && Number.isFinite(a) && h === a;
-  }, [pred.home, pred.away]);
 
   const prizeTopRight = useMemo(() => {
     if (!PROGRAM_ID) return 'Grand Prize: —';
@@ -256,26 +226,33 @@ function Match() {
 
   return (
     <Layout>
-      <div className="arena">
+      <div >
         <div className="arena__frame">
           <header className="arena__topbar">
             <div className="arena__topbarLeft">
-              <div className="arena__crumb">MATCH</div>
-              <div className="arena__address">
-                Your Address: <span className="dim">{addressMock}</span>
-              </div>
+              <button
+                className="arena__logoBtn"
+                type="button"
+                onClick={() => navigate(-1)}
+                aria-label="Go back">
+                <img className="logo-small" src="/Logos.png" alt="SmartCup League" />
+              </button>
             </div>
-            <div className="logo-small">
-              <img className="logo-small" src="/Logos.png" alt="Soccer fans celebrating" />
-            </div>
+
 
             <div className="arena__topbarRight">
               <div className="arena__statPill">{prizeTopRight}</div>
               <div className="arena__statPill">
                 Pos: <b>{positionMock}</b> · Points: <b>{pointsMock}</b>
+
               </div>
 
-              <Header />
+              <div className="arena__walletGroup">
+                <div className="arena__address dim">
+                  {addressDisplay !== '—' ? addressDisplay : 'Not connected'}
+                </div>
+                <StyledWallet />
+              </div>
             </div>
           </header>
 
@@ -284,22 +261,31 @@ function Match() {
               <div className="sideCard">
                 <div className="sideCard__title">YOUR TOURNAMENT STATS</div>
                 <div className="sideRows">
+
+                  <div className="sideRow">
+                    <span className="dim">Position</span>
+                    <b>{positionMock}</b>
+                  </div>
+                  <div className="sideRow">
+                    <span className="dim">Points</span>
+                    <b>{pointsMock}</b>
+                  </div>
                   <div className="sideRow">
                     <span className="dim">Matches Predicted</span>
-                    <b>12/30</b>
+                    <b>—</b>
                   </div>
                   <div className="sideRow">
                     <span className="dim">Correct: exact</span>
-                    <b>7</b>
+                    <b>—</b>
                   </div>
                   <div className="sideRow">
                     <span className="dim">Correct outcomes</span>
-                    <b>3</b>
+                    <b>—</b>
                   </div>
                   <div className="sideDivider" />
                   <div className="sideRow">
                     <span className="dim">Match Weight</span>
-                    <b>x1 (Group Stage)</b>
+                    <b>{(selectedMatch?.phase || '').replace(/_/g, ' ') || 'Group Stage'}</b>
                   </div>
                 </div>
               </div>
@@ -344,23 +330,7 @@ function Match() {
                 <div className="sideHint dim">Larger pool → lower payout per winner</div>
               </div>
 
-              <div className="sideCard">
-                <div className="sideCard__title">WHAT IF NO ONE IS CORRECT?</div>
-                <div className="sideCallout">
-                  If no one predicts correctly, the match pool goes to the Final Prize Pool.
-                </div>
-              </div>
-
-              <div className="sideCard">
-                <div className="sideCard__title">FAIR &amp; SAFE PREDICTIONS</div>
-                <ul className="checkList">
-                  <li>Non-custodial</li>
-                  <li>Pari-mutuel (no house odds)</li>
-                  <li>Oracle-verified results</li>
-                  <li>DAO governed fees</li>
-                </ul>
-              </div>
-
+              {/* Potential profit — moved to side column */}
               <div className="sideCard">
                 <div className="sideCard__title">GRAND PRIZE</div>
                 <div className="sideRows">
@@ -379,6 +349,24 @@ function Match() {
                     </div>
                   ) : null}
                 </div>
+              </div>
+
+              {/* What if / Fair & Safe moved to bottom of side column per spec */}
+              <div className="sideCard">
+                <div className="sideCard__title">WHAT IF NO ONE IS CORRECT?</div>
+                <div className="sideCallout">
+                  If no one predicts correctly, the match pool goes to the Final Prize Pool.
+                </div>
+              </div>
+
+              <div className="sideCard">
+                <div className="sideCard__title">FAIR &amp; SAFE PREDICTIONS</div>
+                <ul className="checkList">
+                  <li>Non-custodial</li>
+                  <li>Pari-mutuel (no house odds)</li>
+                  <li>Oracle-verified results</li>
+                  <li>DAO governed fees</li>
+                </ul>
               </div>
             </aside>
 
@@ -400,7 +388,14 @@ function Match() {
             </section>
           </div>
 
-          <footer className="match-footer">COPYRIGHTS 2025, SMART CUP LEAGUE</footer>
+
+          <footer className="match-footer">
+            <span>© 2026 SmartCup League</span>
+            <span className="match-footer__sep">·</span>
+            <Link to="/terms-of-use" className="match-footer__link">Terms of Use</Link>
+            <span className="match-footer__sep">·</span>
+            <Link to="/dao-constitution" className="match-footer__link">DAO Constitution</Link>
+          </footer>
         </div>
       </div>
     </Layout>

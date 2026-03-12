@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import styled, { keyframes } from 'styled-components';
-import { useAccount, useAlert, useApi } from '@gear-js/react-hooks';
+import { useAccount, useApi } from '@gear-js/react-hooks';
+import { useToast } from '@/hooks/useToast';
 import { web3Enable, web3FromSource } from '@polkadot/extension-dapp';
 import { TransactionBuilder } from 'sails-js';
 import { Program, Service } from '@/hocs/lib';
@@ -335,7 +336,7 @@ function formatUnixMs(ms: number | null): string {
 
 export const RegisterMatchComponent: React.FC = () => {
   const { account } = useAccount();
-  const alert = useAlert();
+  const toast = useToast();
   const { api, isApiReady } = useApi();
 
   const connected = !!account?.decodedAddress;
@@ -377,7 +378,7 @@ export const RegisterMatchComponent: React.FC = () => {
       if (e) e.preventDefault();
 
       if (validationError) {
-        alert.error(validationError);
+        toast.error(validationError);
         return;
       }
       if (!api || !isApiReady || !account) return;
@@ -400,9 +401,9 @@ export const RegisterMatchComponent: React.FC = () => {
         await tx.calculateGas();
         const { blockHash, response } = await tx.signAndSend();
 
-        alert.info(`Included in block ${blockHash}`);
+        toast.info(`Included in block ${blockHash}`);
         await response();
-        alert.success('Match registered!');
+        toast.success('Match registered!');
 
         setPhase('');
         setHome('');
@@ -412,7 +413,7 @@ export const RegisterMatchComponent: React.FC = () => {
         setKickoffLocal(toLocalDateTimeValue(new Date(now.getTime() + 60 * 60 * 1000)));
       } catch (err) {
         console.error(err);
-        alert.error((err as Error).message || 'Failed to register match');
+        toast.error((err as Error).message || 'Failed to register match');
       } finally {
         setLoading(false);
       }
