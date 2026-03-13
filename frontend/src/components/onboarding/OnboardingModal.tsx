@@ -29,9 +29,32 @@ export const OnboardingModal: React.FC<Props> = ({ onAccept }) => {
 
         <h2 className="ob-title" id="ob-title">Before you start playing</h2>
         <p className="ob-subtitle">
-          To participate in SmartCup League predictions, you must review and accept the platform rules
-          and confirm that you are over 18 years old.
+          To participate in SmartCup League predictions, you must review the platform rules
+          and confirm that you are 18 years of age or older.
         </p>
+
+        <div className="ob-rules-box">
+          <p className="ob-rules-label">Please review the SmartCup League tournament rules:</p>
+          <ul className="ob-rules-list">
+            <li className="ob-rules-item">
+              <span className="ob-rules-check">✔</span> Match prediction rules
+            </li>
+            <li className="ob-rules-item">
+              <span className="ob-rules-check">✔</span> Season-long leaderboard system
+            </li>
+            <li className="ob-rules-item">
+              <span className="ob-rules-check">✔</span> Prize pool distribution
+            </li>
+          </ul>
+          <a
+            href="/rules"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ob-rules-btn"
+          >
+            View Full Rules
+          </a>
+        </div>
 
         <form className="ob-form" onSubmit={handleSubmit} noValidate>
           <div className="ob-fields">

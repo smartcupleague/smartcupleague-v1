@@ -280,7 +280,7 @@ export default function Home() {
       owner: String(s?.owner ?? ''),
       kyc_contract: String(s?.kyc_contract ?? ''),
       final_prize_distributor: String(s?.final_prize_distributor ?? ''),
-      fee_accum: s?.fee_accum ?? '0',
+      fee_accum: s?.protocol_fee_accumulated ?? '0',
       final_prize_accum: s?.final_prize_accumulated ?? '0',
       matches,
       phases: Array.isArray(s?.phases)

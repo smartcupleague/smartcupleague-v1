@@ -10,6 +10,7 @@ import GovernancePanel from '@/components/dao/GovernancePanel';
 import { Simulator } from './simulator';
 import TermsOfUse from './legal/TermsOfUse';
 import DaoConstitution from './legal/DaoConstitution';
+import Rules from './legal/Rules';
 
 function Routing() {
   return (
@@ -22,6 +23,7 @@ function Routing() {
       {/* Legal pages — accessible without auth */}
       <Route path="/terms-of-use" element={<TermsOfUse />} />
       <Route path="/dao-constitution" element={<DaoConstitution />} />
+      <Route path="/rules" element={<Rules />} />
       <Route element={<AppLayout />}>
         {/* /progress replaces /home */}
         <Route path="/progress" element={<Home />} />
