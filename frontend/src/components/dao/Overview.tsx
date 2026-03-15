@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useApi, useAlert } from '@gear-js/react-hooks';
+import { useApi } from '@gear-js/react-hooks';
+import { useToast } from '@/hooks/useToast';
 import { web3Enable } from '@polkadot/extension-dapp';
 import { Program, Service } from '@/hocs/dao';
 
@@ -131,7 +132,7 @@ function toUI(p: DaoProposal): ProposalUI {
 
 export default function Overview() {
   const { api, isApiReady } = useApi();
-  const alert = useAlert();
+  const toast = useToast();
 
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<'Ending Soonest' | 'Newest'>('Ending Soonest');
@@ -154,11 +155,11 @@ export default function Overview() {
     } catch (e) {
       console.error(e);
       setProposalsRaw([]);
-      alert.error('Failed to fetch proposals');
+      toast.error('Failed to fetch proposals');
     } finally {
       setLoading(false);
     }
-  }, [api, isApiReady, alert]);
+  }, [api, isApiReady, toast]);
 
   useEffect(() => {
     void fetchProposals();

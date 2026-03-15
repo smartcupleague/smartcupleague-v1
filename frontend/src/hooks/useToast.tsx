@@ -77,6 +77,18 @@ export function useToast() {
 
 /* ---------- UI ---------- */
 
+const ICONS: Record<ToastType, string> = {
+  success: '✓',
+  error:   '✕',
+  info:    'ℹ',
+};
+
+const TITLES: Record<ToastType, string> = {
+  success: 'Success',
+  error:   'Error',
+  info:    'Info',
+};
+
 const ToastViewport: React.FC<{
   toasts: Toast[];
   onClose: (id: string) => void;
@@ -87,15 +99,20 @@ const ToastViewport: React.FC<{
         <div key={t.id} className={`toast toast--${t.type}`} role="status">
           <div className="toast__bar" />
           <div className="toast__body">
-            <div className="toast__top">
-              <div className="toast__title">
-                {t.title ?? (t.type === 'success' ? 'Success' : t.type === 'error' ? 'Error' : 'Info')}
-              </div>
-              <button className="toast__close" onClick={() => onClose(t.id)} aria-label="Close">
-                ✕
-              </button>
+            <div className="toast__icon" aria-hidden="true">
+              {ICONS[t.type]}
             </div>
-            <div className="toast__msg">{t.message}</div>
+            <div className="toast__content">
+              <div className="toast__top">
+                <div className="toast__title">
+                  {t.title ?? TITLES[t.type]}
+                </div>
+                <button className="toast__close" onClick={() => onClose(t.id)} aria-label="Close">
+                  ✕
+                </button>
+              </div>
+              <div className="toast__msg">{t.message}</div>
+            </div>
           </div>
         </div>
       ))}

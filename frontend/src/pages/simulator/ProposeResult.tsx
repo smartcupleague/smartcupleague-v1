@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import styled, { keyframes } from 'styled-components';
-import { useAccount, useAlert, useApi } from '@gear-js/react-hooks';
+import { useAccount, useApi } from '@gear-js/react-hooks';
+import { useToast } from '@/hooks/useToast';
 import { web3Enable, web3FromSource } from '@polkadot/extension-dapp';
 import { TransactionBuilder } from 'sails-js';
 import { Program, Service } from '@/hocs/lib';
@@ -490,7 +491,7 @@ async function readAllMatchesFromState(api: unknown): Promise<MatchView[]> {
 
 export const ProposeResultComponent: React.FC = () => {
   const { account } = useAccount();
-  const alert = useAlert();
+  const toast = useToast();
   const { api, isApiReady } = useApi();
 
   const connected = !!account?.decodedAddress;
@@ -555,7 +556,7 @@ export const ProposeResultComponent: React.FC = () => {
     const err = validate();
     if (err) {
       setError(err);
-      alert.error(err);
+      toast.error(err);
       return;
     }
     if (!api || !isApiReady || !account || !match) return;
@@ -577,15 +578,15 @@ export const ProposeResultComponent: React.FC = () => {
       await tx.calculateGas();
 
       const { blockHash, response } = await tx.signAndSend();
-      alert.info(`TX included in block ${blockHash}`);
+      toast.info(`TX included in block ${blockHash}`);
       await response();
 
-      alert.success('Result proposal sent!');
+      toast.success('Result proposal sent!');
       await refreshStateMatches();
     } catch (e) {
       console.error(e);
       setError('Failed to submit proposal');
-      alert.error('Failed to submit proposal');
+      toast.error('Failed to submit proposal');
     } finally {
       setSubmitting(false);
     }

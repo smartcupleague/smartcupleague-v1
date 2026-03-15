@@ -1,9 +1,7 @@
 import styles from './Copyright.module.scss';
 
 function Copyright() {
-  const year = new Date().getFullYear();
-
-  return <small className={styles.copyright}>&copy; {year} Gear Foundation, Inc. All rights reserved.</small>;
+  return <small className={styles.copyright}>&copy; 2026 SmartCup League</small>;
 }
 
 export { Copyright };

@@ -1,41 +1,37 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import './leaderboards.css';
-import { useAccount, useApi, useAlert } from '@gear-js/react-hooks';
+import { useAccount, useApi } from '@gear-js/react-hooks';
+import { useToast } from '@/hooks/useToast';
 import { web3Enable } from '@polkadot/extension-dapp';
 import { decodeAddress } from '@polkadot/util-crypto';
 import { u8aToHex } from '@polkadot/util';
 import { Program, Service } from '@/hocs/lib';
 import { StyledWallet } from '../wallet/Wallet';
+import { useNavigate } from 'react-router-dom';
 
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as `0x${string}`;
+const MY_LB_KEY = 'scl_my_leaderboard_v1';
 
 type LbRow = {
   rank: number;
   wallet: string;
   totalPoints: number;
-  matchPoints: number;
-  tournamentBonus: number;
-  exactPicks: number;
-  delta?: number;
+  // TODO: matches, exact, outcome counts require per-user detailed data from contract
+  matches: number;
+  exact: number;
+  outcome: number;
 };
 
-type BonusPick = { left: string; right: string };
-
-type EarningRow = { rank: number; wallet: string; usdc: number; roi: number };
-
-const bonusPicks: BonusPick[] = [
-  { left: 'Argentina', right: 'France' },
-  { left: 'Argentina', right: 'Brazil' },
-  { left: 'Brazil', right: 'England' },
-];
+type EarningRow = { rank: number; wallet: string; vara: number; roi: number };
 
 const topEarnings: EarningRow[] = [
-  { rank: 1, wallet: '0x83…410', usdc: 1027, roi: 717 },
-  { rank: 2, wallet: 'Moonpatterns', usdc: 978, roi: 689 },
-  { rank: 3, wallet: '0x82…746', usdc: 835, roi: 609 },
+  { rank: 1, wallet: '0x83…410', vara: 1027, roi: 717 },
+  { rank: 2, wallet: 'Moonpatterns', vara: 978, roi: 689 },
+  { rank: 3, wallet: '0x82…746', vara: 835, roi: 609 },
 ];
 
-const tabs = ['Overall Leaderboard', 'Match Performance', 'R32 Bonus (Picks)', 'Earnings / ROI'] as const;
+// Tabs — removed Match Performance, R32 Bonus (Picks), Earnings/ROI per spec
+const tabs = ['Global Leaderboard', 'My Leaderboard'] as const;
 type Tab = (typeof tabs)[number];
 
 function shortHex(addr: string) {
@@ -57,20 +53,59 @@ function toHexAddress(input?: string | null): `0x${string}` | null {
   }
 }
 
-type QueryStateResponse = { user_points?: Array<[string, number]> };
+function kickOffToMs(input: number) {
+  if (!input || !Number.isFinite(input)) return 0;
+  return input < 10_000_000_000 ? input * 1000 : input;
+}
+
+function formatDateTime(ms: number) {
+  if (!ms) return '—';
+  const d = new Date(ms);
+  return (
+    d.toLocaleDateString(undefined, { year: '2-digit', month: 'short', day: 'numeric' }) +
+    ' ' +
+    d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  );
+}
+
+type QueryStateResponse = {
+  user_points?: Array<[string, number]>;
+  matches?: any[];
+};
 
 export default function Leaderboards() {
-  const [activeTab, setActiveTab] = useState<Tab>('Overall Leaderboard');
+  const [activeTab, setActiveTab] = useState<Tab>('Global Leaderboard');
   const [query, setQuery] = useState('');
+  const navigate = useNavigate();
 
   const { api, isApiReady } = useApi();
-  const alert = useAlert();
+  const toast = useToast();
   const { account } = useAccount();
 
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<LbRow[]>([]);
+  const [upcomingMatches, setUpcomingMatches] = useState<any[]>([]);
 
   const listRef = useRef<HTMLDivElement | null>(null);
+
+  // "My Leaderboard" — list of followed wallet addresses (localStorage)
+  const [followedWallets, setFollowedWallets] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(MY_LB_KEY) ?? '[]');
+    } catch {
+      return [];
+    }
+  });
+
+  const toggleFollow = (wallet: string) => {
+    setFollowedWallets((prev) => {
+      const next = prev.includes(wallet) ? prev.filter((w) => w !== wallet) : [...prev, wallet];
+      try {
+        localStorage.setItem(MY_LB_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
 
   const myWalletHex = useMemo(() => {
     const addr = account?.decodedAddress ?? (account as any)?.address ?? null;
@@ -96,9 +131,10 @@ export default function Leaderboards() {
           rank: 0,
           wallet: String(wallet),
           totalPoints: Number(totalPoints ?? 0),
-          matchPoints: Number(totalPoints ?? 0),
-          tournamentBonus: 0,
-          exactPicks: 0,
+          // TODO: Matches/Exact/Outcome per user not yet available from contract
+          matches: 0,
+          exact: 0,
+          outcome: 0,
         }))
         .filter((r) => r.wallet);
 
@@ -108,14 +144,33 @@ export default function Leaderboards() {
       });
 
       setRows(mapped.map((r, idx) => ({ ...r, rank: idx + 1 })));
+
+      // Extract upcoming matches for sidebar widget
+      if (Array.isArray(state?.matches)) {
+        const now = Date.now();
+        const upcoming = state.matches
+          .filter((m: any) => {
+            const ko = Number(m?.kick_off ?? 0);
+            const ms = ko < 10_000_000_000 ? ko * 1000 : ko;
+            const isFinalized = !!(m?.result?.Finalized || m?.result?.finalized);
+            return !isFinalized && ms > now;
+          })
+          .sort((a: any, b: any) => {
+            const aMs = kickOffToMs(Number(a.kick_off));
+            const bMs = kickOffToMs(Number(b.kick_off));
+            return aMs - bMs;
+          })
+          .slice(0, 3);
+        setUpcomingMatches(upcoming);
+      }
     } catch (e: any) {
       console.error(e);
       setRows([]);
-      alert.error('Failed to fetch leaderboard (queryState)');
+      toast.error('Failed to fetch leaderboard (queryState)');
     } finally {
       setLoading(false);
     }
-  }, [api, isApiReady, alert]);
+  }, [api, isApiReady, toast]);
 
   useEffect(() => {
     void fetchLeaderboard();
@@ -135,6 +190,14 @@ export default function Leaderboards() {
 
   const myRank = myRow?.rank ?? null;
   const myPts = myRow?.totalPoints ?? 0;
+  // TODO: myExact and myOutcome from contract per-user data
+  const myExact = 0;
+  const myOutcome = 0;
+
+  const myLbRows = useMemo(() => {
+    if (!followedWallets.length) return [];
+    return rows.filter((r) => followedWallets.includes(r.wallet.toLowerCase()));
+  }, [rows, followedWallets]);
 
   const handleJumpToMe = () => {
     if (!myWalletHex) return;
@@ -142,7 +205,7 @@ export default function Leaderboards() {
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
-  const showComingSoon = activeTab !== 'Overall Leaderboard';
+  const displayRows = activeTab === 'My Leaderboard' ? myLbRows : filtered;
 
   return (
     <div className="lb lb--full">
@@ -202,7 +265,7 @@ export default function Leaderboards() {
 
       <section className="lbHeaderRow">
         <div className="lbTitle">
-          <div className="lbTitle__main">Leaderboard</div>
+          <div className="lbTitle__main">{activeTab}</div>
           <div className="lbTitle__sub muted">World Cup 2026 • On-chain</div>
         </div>
 
@@ -220,32 +283,36 @@ export default function Leaderboards() {
       <main className="lbGrid">
         <section className="lbCard lbCard--table" aria-label="Leaderboard table">
           <div className="lbTable" ref={listRef}>
-            <div className="lbTHead">
-              <div>Rank</div>
+            {/* Table header */}
+            <div className="lbTHead lbTHead--6col">
+              <div>Pos.</div>
               <div>Wallet</div>
-              <div className="lbTH--num">Total</div>
-              <div className="lbTH--num">Match</div>
-              <div className="lbTH--num">Bonus</div>
+              <div className="lbTH--num">Matches</div>
               <div className="lbTH--num">Exact</div>
+              <div className="lbTH--num">Outcome</div>
+              <div className="lbTH--num lbTH--points">Points</div>
             </div>
 
             <div className="lbTBody">
-              {showComingSoon ? (
-                <div className="lbTable__foot muted tiny">Coming soon.</div>
+              {activeTab === 'My Leaderboard' && !followedWallets.length ? (
+                <div className="lbTable__foot muted tiny">
+                  No wallets followed yet. Click <b>+</b> next to any player in Global Leaderboard to add them.
+                </div>
               ) : loading ? (
                 <div className="lbTable__foot muted tiny">Loading on-chain leaderboard…</div>
-              ) : filtered.length === 0 ? (
+              ) : displayRows.length === 0 ? (
                 <div className="lbTable__foot muted tiny">No wallets found.</div>
               ) : (
-                filtered.map((r) => {
+                displayRows.map((r) => {
                   const isMe = !!myWalletHex && r.wallet.toLowerCase() === myWalletHex.toLowerCase();
                   const medal = r.rank === 1 ? '🥇' : r.rank === 2 ? '🥈' : r.rank === 3 ? '🥉' : '•';
+                  const isFollowed = followedWallets.includes(r.wallet.toLowerCase());
 
                   return (
                     <div
                       key={`${r.rank}-${r.wallet}`}
                       id={`lb-row-${r.wallet.toLowerCase()}`}
-                      className={'lbTRow ' + (isMe ? 'lbTRow--me' : '')}>
+                      className={'lbTRow lbTRow--6col ' + (isMe ? 'lbTRow--me' : '')}>
                       <div className="lbRank">
                         <span className="lbMedal" aria-hidden="true">
                           {medal}
@@ -257,22 +324,30 @@ export default function Leaderboards() {
                         <span className="lbAvatar" aria-hidden="true" />
                         <span className="lbWalletCell__text">{shortHex(r.wallet)}</span>
                         {isMe ? <span className="lbMe">YOU</span> : null}
+                        {/* Add to My Leaderboard button */}
+                        <button
+                          className={'lbFollowBtn ' + (isFollowed ? 'lbFollowBtn--active' : '')}
+                          type="button"
+                          title={isFollowed ? 'Remove from My Leaderboard' : 'Add to My Leaderboard'}
+                          aria-label={isFollowed ? 'Remove from My Leaderboard' : 'Add to My Leaderboard'}
+                          onClick={() => toggleFollow(r.wallet.toLowerCase())}>
+                          {isFollowed ? '✓' : '+'}
+                        </button>
                       </div>
 
-                      <div className="lbNum">
+                      {/* TODO: matches/exact/outcome from contract per-user data */}
+                      <div className="lbNum lbNum--right">
+                        <span className="lbNum__main lbNum__muted">—</span>
+                      </div>
+                      <div className="lbNum lbNum--right">
+                        <span className="lbNum__main lbNum__muted">—</span>
+                      </div>
+                      <div className="lbNum lbNum--right">
+                        <span className="lbNum__main lbNum__muted">—</span>
+                      </div>
+
+                      <div className="lbNum lbNum--right lbNum--points">
                         <span className="lbNum__main">{r.totalPoints}</span>
-                      </div>
-
-                      <div className="lbNum">
-                        <span className="lbNum__main">{r.matchPoints}</span>
-                      </div>
-
-                      <div className="lbNum">
-                        <span className="lbNum__main">{r.tournamentBonus}</span>
-                      </div>
-
-                      <div className="lbNum">
-                        <span className="lbNum__main">{r.exactPicks}</span>
                       </div>
                     </div>
                   );
@@ -283,34 +358,7 @@ export default function Leaderboards() {
         </section>
 
         <aside className="lbRight">
-          <section className="lbCard">
-            <div className="lbCard__head">
-              <div className="lbCard__title">Tournament Bonus: R32 Picks</div>
-              <div className="lbCard__sub muted tiny">Preview</div>
-            </div>
-
-            <div className="lbPickList">
-              {bonusPicks.map((p, i) => (
-                <div className="lbPick" key={i}>
-                  <span className="lbPick__icon" aria-hidden="true">
-                    🔥
-                  </span>
-                  <div className="lbPick__teams">
-                    <div className="lbPick__team">{p.left}</div>
-                    <div className="lbPick__vs muted tiny">vs</div>
-                    <div className="lbPick__team">{p.right}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="lbCard__foot">
-              <button className="lbBtn lbBtn--soft wfull" type="button">
-                View all R32 picks
-              </button>
-            </div>
-          </section>
-
+          {/* Top Earnings — moved up per spec */}
           <section className="lbCard">
             <div className="lbCard__head">
               <div className="lbCard__title">Top Earnings</div>
@@ -322,15 +370,46 @@ export default function Leaderboards() {
                 <div className="lbEarnRow" key={e.rank}>
                   <div className="lbEarnRank">#{e.rank}</div>
                   <div className="lbEarnWallet">{e.wallet}</div>
-                  <div className="lbEarnNum mono">{e.usdc} USDC</div>
+                  <div className="lbEarnNum mono">{e.vara} VARA</div>
                   <div className="lbEarnRoi">+{e.roi}%</div>
                 </div>
               ))}
             </div>
+          </section>
+
+          {/* Upcoming Matches — replaces R32 Bonus widget */}
+          <section className="lbCard">
+            <div className="lbCard__head">
+              <div className="lbCard__title">Upcoming Matches</div>
+              <div className="lbCard__sub muted tiny">Next to predict</div>
+            </div>
+
+            <div className="lbUpcoming">
+              {upcomingMatches.length === 0 ? (
+                <div className="muted tiny" style={{ padding: '8px 0' }}>No upcoming matches loaded.</div>
+              ) : (
+                upcomingMatches.map((m: any, i: number) => (
+                  <div className="lbUpMatch" key={i}>
+                    <div className="lbUpMatch__teams">
+                      {m.home} vs {m.away}
+                    </div>
+                    <div className="lbUpMatch__meta muted tiny">
+                      {(m.phase || '').replace(/_/g, ' ')} · {formatDateTime(kickOffToMs(Number(m.kick_off)))}
+                    </div>
+                    <button
+                      className="lbBtn lbBtn--soft lbBtn--sm"
+                      type="button"
+                      onClick={() => navigate(`/2026worldcup/match/${m.match_id}`)}>
+                      Predict
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
 
             <div className="lbCard__foot">
-              <button className="lbBtn lbBtn--ghost wfull" type="button">
-                View all earnings →
+              <button className="lbBtn lbBtn--ghost wfull" type="button" onClick={() => navigate('/all-matches')}>
+                View all matches →
               </button>
             </div>
           </section>
@@ -344,6 +423,13 @@ export default function Leaderboards() {
             <span className="lbBottom__rank">{myRank ? `#${myRank}` : '—'}</span>
             <span className="dot">•</span>
             <span className="lbBottom__pts">{myPts}</span>
+            <span className="lbBottom__ptsLabel muted tiny"> points</span>
+            {myExact > 0 || myOutcome > 0 ? (
+              <>
+                <span className="dot">•</span>
+                <span className="lbBottom__detail muted tiny">{myExact} exact · {myOutcome} outcomes</span>
+              </>
+            ) : null}
           </div>
           <div className="lbBottom__hint muted tiny">
             {myWalletHex ? `Wallet: ${shortHex(myWalletHex)}` : 'Connect wallet to see your rank'}

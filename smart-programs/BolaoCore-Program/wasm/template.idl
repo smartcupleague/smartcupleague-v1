@@ -1,76 +1,100 @@
-type Outcome = enum {
+type Score = struct {
+  home: u8,
+  away: u8,
+};
+
+type PenaltyWinner = enum {
   Home,
-  Draw,
   Away,
 };
 
 type UserBetView = struct {
   match_id: u64,
-  selected: Outcome,
-  amount: u128,
-  paid: bool,
+  score: Score,
+  penalty_winner: opt PenaltyWinner,
+  stake_in_match_pool: u128,
+  claimed: bool,
 };
 
-type MatchInfo = struct {
+type Match = struct {
   match_id: u64,
   phase: str,
   home: str,
   away: str,
   kick_off: u64,
   result: ResultStatus,
-  pool_home: u128,
-  pool_draw: u128,
-  pool_away: u128,
+  match_prize_pool: u128,
   has_bets: bool,
   participants: vec actor_id,
+  total_winner_stake: u128,
+  total_claimed: u128,
+  settlement_prepared: bool,
+  dust_swept: bool,
 };
 
 type ResultStatus = enum {
   Unresolved,
   Proposed: struct {
-    outcome: Outcome,
+    score: Score,
+    penalty_winner: opt PenaltyWinner,
     oracle: actor_id,
   },
   Finalized: struct {
-    outcome: Outcome
+    score: Score,
+    penalty_winner: opt PenaltyWinner,
   },
 };
 
-type IoBolaoState = struct {
-  owner: actor_id,
-  kyc_contract: actor_id,
+type IoSmartCupState = struct {
+  admin: actor_id,
   final_prize_distributor: actor_id,
-  fee_accum: u128,
-  final_prize_accum: u128,
-  matches: vec MatchInfo,
-  phases: vec MatchPhase,
+  protocol_fee_accumulated: u128,
+  final_prize_accumulated: u128,
+  matches: vec Match,
+  phases: vec PhaseConfig,
   user_points: vec struct { actor_id, u32 },
+  podium_finalized: bool,
+  r32_lock_time: opt u64,
 };
 
-type MatchPhase = struct {
+type PhaseConfig = struct {
   name: str,
   start_time: u64,
   end_time: u64,
+  points_weight: u32,
+};
+
+type WalletClaimStatus = struct {
+  wallet: actor_id,
+  amount_claimable: u128,
+  already_claimed: bool,
 };
 
 constructor {
-  New : (kyc_contract: actor_id, final_prize_distributor: actor_id);
+  New : (final_prize_distributor: actor_id);
 };
 
 service Service {
-  Bet : (match_id: u64, selected: Outcome) -> BolaoEvent;
-  FinalizeResult : (match_id: u64) -> BolaoEvent;
-  PayoutWinners : (match_id: u64) -> vec BolaoEvent;
-  ProposeResult : (match_id: u64, outcome: Outcome) -> BolaoEvent;
-  RegisterMatch : (phase: str, home: str, away: str, kick_off: u64) -> BolaoEvent;
-  RegisterPhase : (phase_name: str, start_time: u64, end_time: u64) -> BolaoEvent;
-  SendFinalPrize : () -> BolaoEvent;
-  WithdrawFees : () -> BolaoEvent;
+  ChangeAdmin : (new_admin: actor_id) -> SmartCupEvent;
+  ClaimMatchReward : (match_id: u64) -> SmartCupEvent;
+  FinalizePodium : (champion: str, runner_up: str, third_place: str) -> vec SmartCupEvent;
+  FinalizeResult : (match_id: u64) -> SmartCupEvent;
+  PlaceBet : (match_id: u64, predicted_score: Score, predicted_penalty_winner: opt PenaltyWinner) -> SmartCupEvent;
+  PrepareMatchSettlement : (match_id: u64) -> SmartCupEvent;
+  ProposeResult : (match_id: u64, final_score: Score, penalty_winner: opt PenaltyWinner) -> SmartCupEvent;
+  RegisterMatch : (phase: str, home: str, away: str, kick_off: u64) -> SmartCupEvent;
+  RegisterPhase : (phase_name: str, start_time: u64, end_time: u64, points_weight: u32) -> SmartCupEvent;
+  SendFinalPrize : () -> SmartCupEvent;
+  SetOracleAuthorized : (oracle: actor_id, authorized: bool) -> SmartCupEvent;
+  SubmitPodiumPick : (champion: str, runner_up: str, third_place: str) -> SmartCupEvent;
+  SweepMatchDustToFinalPrize : (match_id: u64) -> SmartCupEvent;
+  WithdrawProtocolFees : () -> SmartCupEvent;
   query QueryBetsByUser : (user: actor_id) -> vec UserBetView;
-  query QueryMatch : (match_id: u64) -> opt MatchInfo;
-  query QueryMatchesByPhase : (phase: str) -> vec MatchInfo;
-  query QueryState : () -> IoBolaoState;
+  query QueryMatch : (match_id: u64) -> opt Match;
+  query QueryMatchesByPhase : (phase: str) -> vec Match;
+  query QueryState : () -> IoSmartCupState;
   query QueryUserPoints : (user: actor_id) -> u32;
+  query QueryWalletClaimStatus : (wallet: actor_id) -> WalletClaimStatus;
 
   events {
     PhaseRegistered: str;
@@ -81,32 +105,71 @@ service Service {
       str,
       u64,
     };
+    OracleAuthorized: struct {
+      actor_id,
+      bool,
+    };
     BetAccepted: struct {
       actor_id,
       u64,
-      Outcome,
+      Score,
+      opt PenaltyWinner,
       u128,
     };
     ResultProposed: struct {
       u64,
-      Outcome,
+      Score,
+      opt PenaltyWinner,
       actor_id,
     };
     ResultFinalized: struct {
       u64,
-      Outcome,
+      Score,
+      opt PenaltyWinner,
     };
-    WinnerPaid: struct {
+    SettlementPrepared: struct {
+      u64,
+      u128,
+    };
+    PointsAwarded: struct {
+      actor_id,
+      u64,
+      u32,
+    };
+    MatchRewardClaimed: struct {
       u64,
       actor_id,
       u128,
+    };
+    MatchDustSwept: struct {
+      u64,
+      u128,
+    };
+    PodiumPickSubmitted: struct {
+      actor_id,
+      str,
+      str,
+      str,
+    };
+    PodiumFinalized: struct {
+      str,
+      str,
+      str,
+    };
+    PodiumBonusAwarded: struct {
+      actor_id,
+      u32,
     };
     FinalPrizeSent: struct {
       u128,
       actor_id,
     };
-    FeeWithdrawn: struct {
+    ProtocolFeesWithdrawn: struct {
       u128,
+      actor_id,
+    };
+    AdminChanged: struct {
+      actor_id,
       actor_id,
     };
   }

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import styled, { keyframes } from 'styled-components';
-import { useAccount, useAlert, useApi } from '@gear-js/react-hooks';
+import { useAccount, useApi } from '@gear-js/react-hooks';
+import { useToast } from '@/hooks/useToast';
 import { web3Enable, web3FromSource } from '@polkadot/extension-dapp';
 import { TransactionBuilder } from 'sails-js';
 import { Program, Service } from '@/hocs/lib';
@@ -394,7 +395,7 @@ function formatUnixMs(ms: number | null): string {
 export const RegisterPhaseComponent: React.FC = () => {
   const { api, isApiReady } = useApi();
   const { account } = useAccount();
-  const alert = useAlert();
+  const toast = useToast();
 
   const connected = !!account?.decodedAddress;
 
@@ -470,7 +471,7 @@ export const RegisterPhaseComponent: React.FC = () => {
       if (ev) ev.preventDefault();
 
       if (validationError) {
-        alert.error(validationError);
+        toast.error(validationError);
         return;
       }
       if (!api || !isApiReady || !account) return;
@@ -491,19 +492,19 @@ export const RegisterPhaseComponent: React.FC = () => {
         await tx.calculateGas();
         const { blockHash, response } = await tx.signAndSend();
 
-        alert.info(`Transaction included in block ${blockHash}`);
+        toast.info(`Transaction included in block ${blockHash}`);
         await response();
-        alert.success(`Phase "${phaseName}" registered!`);
+        toast.success(`Phase "${phaseName}" registered!`);
 
         setPhaseName('');
       } catch (err) {
         console.error(err);
-        alert.error((err as Error).message || 'Register phase failed');
+        toast.error((err as Error).message || 'Register phase failed');
       } finally {
         setLoading(false);
       }
     },
-    [validationError, api, isApiReady, account, startMs, endMs, weight, phaseName, alert],
+    [validationError, api, isApiReady, account, startMs, endMs, weight, phaseName, toast],
   );
 
   return (

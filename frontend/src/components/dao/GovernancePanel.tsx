@@ -65,10 +65,11 @@ export default function GovernancePanel() {
         {activeTab === 'My Proposals' && <MyProposals />}
 
         <footer className="gov__footer">
-          <span>Terms</span>
-          <span>Privacy</span>
-          <span>Smart Contracts</span>
-          <span>Security</span>
+          <span>© 2026 SmartCup League</span>
+          <span className="gov__footerSep">·</span>
+          <a href="/terms-of-use" className="gov__footerLink" target="_blank" rel="noopener noreferrer">Terms of Use</a>
+          <span className="gov__footerSep">·</span>
+          <a href="/dao-constitution" className="gov__footerLink" target="_blank" rel="noopener noreferrer">DAO Constitution</a>
         </footer>
       </div>
     </div>

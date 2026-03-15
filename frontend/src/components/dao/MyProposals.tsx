@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import styled, { keyframes } from 'styled-components';
-import { useApi, useAlert, useAccount } from '@gear-js/react-hooks';
+import { useApi, useAccount } from '@gear-js/react-hooks';
+import { useToast } from '@/hooks/useToast';
 import { web3Enable } from '@polkadot/extension-dapp';
 import { decodeAddress } from '@polkadot/util-crypto';
 import { u8aToHex } from '@polkadot/util';
@@ -372,7 +373,7 @@ function toHexAddress(input?: string | null): `0x${string}` | null {
 
 export const MyProposals: React.FC = () => {
   const { api, isApiReady } = useApi();
-  const alert = useAlert();
+  const toast = useToast();
   const { account } = useAccount();
 
   const [loading, setLoading] = useState(false);
@@ -403,11 +404,11 @@ export const MyProposals: React.FC = () => {
     } catch (e: any) {
       console.error(e);
       setProposals([]);
-      alert.error('Failed to fetch proposals');
+      toast.error('Failed to fetch proposals');
     } finally {
       setLoading(false);
     }
-  }, [api, isApiReady, alert]);
+  }, [api, isApiReady, toast]);
 
   useEffect(() => {
     void fetchProposals();
