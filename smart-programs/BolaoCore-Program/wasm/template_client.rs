@@ -53,6 +53,19 @@ impl<R> Service<R> {
 }
 impl<R: Remoting + Clone> traits::Service for Service<R> {
     type Args = R::Args;
+    /// Step 2 of 2-step admin transfer: pending admin confirms ownership.
+    /// Must be called by the address previously set via change_admin().
+    fn accept_admin(&mut self) -> impl Call<Output = SmartCupEvent, Args = R::Args> {
+        RemotingAction::<_, service::io::AcceptAdmin>::new(self.remoting.clone(), ())
+    }
+    fn cancel_proposed_result(
+        &mut self,
+        match_id: u64,
+    ) -> impl Call<Output = SmartCupEvent, Args = R::Args> {
+        RemotingAction::<_, service::io::CancelProposedResult>::new(self.remoting.clone(), match_id)
+    }
+    /// Step 1 of 2-step admin transfer: proposes a new admin address.
+    /// The proposed address must call accept_admin() to complete the transfer.
     fn change_admin(
         &mut self,
         new_admin: ActorId,
@@ -228,6 +241,36 @@ pub mod service {
     pub mod io {
         use super::*;
         use sails_rs::calls::ActionIo;
+        pub struct AcceptAdmin(());
+        impl AcceptAdmin {
+            #[allow(dead_code)]
+            pub fn encode_call() -> Vec<u8> {
+                <AcceptAdmin as ActionIo>::encode_call(&())
+            }
+        }
+        impl ActionIo for AcceptAdmin {
+            const ROUTE: &'static [u8] = &[
+                28, 83, 101, 114, 118, 105, 99, 101, 44, 65, 99, 99, 101, 112, 116, 65, 100, 109,
+                105, 110,
+            ];
+            type Params = ();
+            type Reply = super::SmartCupEvent;
+        }
+        pub struct CancelProposedResult(());
+        impl CancelProposedResult {
+            #[allow(dead_code)]
+            pub fn encode_call(match_id: u64) -> Vec<u8> {
+                <CancelProposedResult as ActionIo>::encode_call(&match_id)
+            }
+        }
+        impl ActionIo for CancelProposedResult {
+            const ROUTE: &'static [u8] = &[
+                28, 83, 101, 114, 118, 105, 99, 101, 80, 67, 97, 110, 99, 101, 108, 80, 114, 111,
+                112, 111, 115, 101, 100, 82, 101, 115, 117, 108, 116,
+            ];
+            type Params = u64;
+            type Reply = super::SmartCupEvent;
+        }
         pub struct ChangeAdmin(());
         impl ChangeAdmin {
             #[allow(dead_code)]
@@ -633,10 +676,12 @@ pub mod service {
             PodiumBonusAwarded((ActorId, u32)),
             FinalPrizeSent((u128, ActorId)),
             ProtocolFeesWithdrawn((u128, ActorId)),
+            AdminProposed((ActorId, ActorId)),
             AdminChanged((ActorId, ActorId)),
             FinalPrizePoolFinalized((u128, u128)),
             FinalPrizeClaimed((ActorId, u128)),
             FinalPrizeRoundingDustWithdrawn((u128, ActorId)),
+            ResultProposalCancelled((u64, ActorId)),
         }
         impl EventIo for ServiceEvents {
             const ROUTE: &'static [u8] = &[28, 83, 101, 114, 118, 105, 99, 101];
@@ -689,6 +734,9 @@ pub mod service {
                     84, 80, 114, 111, 116, 111, 99, 111, 108, 70, 101, 101, 115, 87, 105, 116, 104,
                     100, 114, 97, 119, 110,
                 ],
+                &[
+                    52, 65, 100, 109, 105, 110, 80, 114, 111, 112, 111, 115, 101, 100,
+                ],
                 &[48, 65, 100, 109, 105, 110, 67, 104, 97, 110, 103, 101, 100],
                 &[
                     92, 70, 105, 110, 97, 108, 80, 114, 105, 122, 101, 80, 111, 111, 108, 70, 105,
@@ -701,6 +749,10 @@ pub mod service {
                 &[
                     124, 70, 105, 110, 97, 108, 80, 114, 105, 122, 101, 82, 111, 117, 110, 100,
                     105, 110, 103, 68, 117, 115, 116, 87, 105, 116, 104, 100, 114, 97, 119, 110,
+                ],
+                &[
+                    92, 82, 101, 115, 117, 108, 116, 80, 114, 111, 112, 111, 115, 97, 108, 67, 97,
+                    110, 99, 101, 108, 108, 101, 100,
                 ],
             ];
             type Event = Self;
@@ -825,6 +877,11 @@ pub mod traits {
     #[allow(clippy::type_complexity)]
     pub trait Service {
         type Args;
+        fn accept_admin(&mut self) -> impl Call<Output = SmartCupEvent, Args = Self::Args>;
+        fn cancel_proposed_result(
+            &mut self,
+            match_id: u64,
+        ) -> impl Call<Output = SmartCupEvent, Args = Self::Args>;
         fn change_admin(
             &mut self,
             new_admin: ActorId,

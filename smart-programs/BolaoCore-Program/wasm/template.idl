@@ -86,6 +86,12 @@ constructor {
 };
 
 service Service {
+  /// Step 2 of 2-step admin transfer: pending admin confirms ownership.
+  /// Must be called by the address previously set via change_admin().
+  AcceptAdmin : () -> SmartCupEvent;
+  CancelProposedResult : (match_id: u64) -> SmartCupEvent;
+  /// Step 1 of 2-step admin transfer: proposes a new admin address.
+  /// The proposed address must call accept_admin() to complete the transfer.
   ChangeAdmin : (new_admin: actor_id) -> SmartCupEvent;
   ClaimFinalPrize : () -> SmartCupEvent;
   ClaimMatchReward : (match_id: u64) -> SmartCupEvent;
@@ -182,6 +188,10 @@ service Service {
       u128,
       actor_id,
     };
+    AdminProposed: struct {
+      actor_id,
+      actor_id,
+    };
     AdminChanged: struct {
       actor_id,
       actor_id,
@@ -196,6 +206,10 @@ service Service {
     };
     FinalPrizeRoundingDustWithdrawn: struct {
       u128,
+      actor_id,
+    };
+    ResultProposalCancelled: struct {
+      u64,
       actor_id,
     };
   }
