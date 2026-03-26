@@ -22,13 +22,7 @@ type LbRow = {
   outcome: number;
 };
 
-type EarningRow = { rank: number; wallet: string; vara: number; roi: number };
-
-const topEarnings: EarningRow[] = [
-  { rank: 1, wallet: '0x83…410', vara: 1027, roi: 717 },
-  { rank: 2, wallet: 'Moonpatterns', vara: 978, roi: 689 },
-  { rank: 3, wallet: '0x82…746', vara: 835, roi: 609 },
-];
+type EarningRow = { rank: number; wallet: string; points: number };
 
 // Tabs — removed Match Performance, R32 Bonus (Picks), Earnings/ROI per spec
 const tabs = ['Global Leaderboard', 'My Leaderboard'] as const;
@@ -198,6 +192,13 @@ export default function Leaderboards() {
     if (!q) return rows;
     return rows.filter((r) => r.wallet.toLowerCase().includes(q));
   }, [query, rows]);
+
+  const topEarnings = useMemo<EarningRow[]>(() => {
+    return rows
+      .filter((r) => r.totalPoints > 0)
+      .slice(0, 3)
+      .map((r) => ({ rank: r.rank, wallet: shortHex(r.wallet), points: r.totalPoints }));
+  }, [rows]);
 
   const myRow = useMemo(() => {
     if (!myWalletHex) return null;
@@ -383,14 +384,19 @@ export default function Leaderboards() {
             </div>
 
             <div className="lbEarnings">
-              {topEarnings.map((e) => (
-                <div className="lbEarnRow" key={e.rank}>
-                  <div className="lbEarnRank">#{e.rank}</div>
-                  <div className="lbEarnWallet">{e.wallet}</div>
-                  <div className="lbEarnNum mono">{e.vara} VARA</div>
-                  <div className="lbEarnRoi">+{e.roi}%</div>
-                </div>
-              ))}
+              {loading ? (
+                <div className="muted tiny" style={{ padding: '8px 0' }}>Loading…</div>
+              ) : topEarnings.length === 0 ? (
+                <div className="muted tiny" style={{ padding: '8px 0' }}>No data yet.</div>
+              ) : (
+                topEarnings.map((e) => (
+                  <div className="lbEarnRow" key={e.rank}>
+                    <div className="lbEarnRank">#{e.rank}</div>
+                    <div className="lbEarnWallet">{e.wallet}</div>
+                    <div className="lbEarnNum mono">{e.points} pts</div>
+                  </div>
+                ))
+              )}
             </div>
           </section>
 
