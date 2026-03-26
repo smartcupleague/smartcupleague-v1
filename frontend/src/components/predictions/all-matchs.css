@@ -1020,3 +1020,18 @@
   .mxFilters__right { flex-wrap: wrap; }
   .mxWalletWrap     { display: none; }
 }
+
+/* ── Prediction made tag ──────────────────────────────── */
+.mxStatus--predicted {
+  background: rgba(50, 200, 100, 0.18);
+  color: #7fffae;
+  border: 1px solid rgba(50, 200, 100, 0.35);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-weight: 700;
+  margin-left: 4px;
+}
+.mxCard--predicted {
+  border-left: 3px solid rgba(50, 200, 100, 0.50);
+}

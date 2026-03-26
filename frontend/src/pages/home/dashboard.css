@@ -797,3 +797,16 @@ body {
   .h-topbar { flex-direction: column; align-items: stretch; }
   .h-user   { justify-content: space-between; min-width: 0; }
 }
+
+/* ── Prediction made tag ──────────────────────────────── */
+.h-pred-tag {
+  font-size: 10px;
+  font-weight: 700;
+  color: #7fffae;
+  background: rgba(50,200,100,0.15);
+  border: 1px solid rgba(50,200,100,0.35);
+  border-radius: 20px;
+  padding: 1px 7px;
+  margin-left: 6px;
+  vertical-align: middle;
+}

@@ -13,16 +13,10 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   {
-    key: 'progress',
-    label: 'My Progress',
-    path: '/progress',
-    icon: <span className="scb-icon">🏆</span>,
-  },
-  {
-    key: 'leaderboards',
-    label: 'Leaderboards',
-    path: '/leaderboards',
-    icon: <span className="scb-icon">🏅</span>,
+    key: 'all-matches',
+    label: 'All Matches',
+    path: '/all-matches',
+    icon: <span className="scb-icon">⚽</span>,
   },
   {
     key: 'my-predictions',
@@ -31,10 +25,16 @@ const navItems: NavItem[] = [
     icon: <span className="scb-icon">🎯</span>,
   },
   {
-    key: 'all-matches',
-    label: 'All Matches',
-    path: '/all-matches',
-    icon: <span className="scb-icon">⚽</span>,
+    key: 'leaderboards',
+    label: 'Leaderboard',
+    path: '/leaderboards',
+    icon: <span className="scb-icon">🏅</span>,
+  },
+  {
+    key: 'progress',
+    label: 'My Progress',
+    path: '/progress',
+    icon: <span className="scb-icon">🏆</span>,
   },
   {
     key: 'dao',

@@ -794,3 +794,91 @@
   margin-top: 4px;
   color: var(--muted);
 }
+
+/* ── Info button & modal ─────────────────────────────────── */
+.mcx__infoBtn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: rgba(255,255,255,0.55);
+  font-size: 14px;
+  padding: 0 0 0 4px;
+  vertical-align: middle;
+  transition: color 0.2s;
+}
+.mcx__infoBtn:hover { color: #ff2e76; }
+
+.mcx__infoOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.72);
+  padding: 16px;
+}
+.mcx__infoPanel {
+  background: #1e000e;
+  border: 1px solid rgba(255,46,118,0.35);
+  border-radius: 16px;
+  padding: 24px;
+  max-width: 420px;
+  width: 100%;
+  position: relative;
+  color: rgba(255,255,255,0.90);
+  box-shadow: 0 24px 80px rgba(0,0,0,0.65);
+}
+.mcx__infoClose {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.55);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+.mcx__infoClose:hover { color: #ff2e76; }
+.mcx__infoTitle {
+  font-size: 16px;
+  font-weight: 800;
+  margin: 0 0 12px;
+  color: #ff8fb8;
+}
+.mcx__infoPanel p {
+  font-size: 13px;
+  margin: 8px 0 4px;
+  line-height: 1.5;
+}
+.mcx__infoList {
+  margin: 4px 0 8px 16px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: rgba(255,255,255,0.82);
+}
+.mcx__infoLink {
+  display: inline-block;
+  margin-top: 12px;
+  font-size: 13px;
+  color: #ff2e76;
+  text-decoration: none;
+  font-weight: 700;
+}
+.mcx__infoLink:hover { text-decoration: underline; }
+
+/* ── Post-prediction success CTA ────────────────────────── */
+.mcx__betSucceeded {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 0;
+}
+.mcx__betSucceeded__msg {
+  font-size: 15px;
+  font-weight: 700;
+  color: #7fffae;
+}

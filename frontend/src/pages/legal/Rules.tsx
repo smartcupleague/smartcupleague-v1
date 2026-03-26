@@ -118,7 +118,7 @@ export default function Rules() {
           </ul>
           <p>Key rules:</p>
           <ul>
-            <li>Winners share 75% of the pool</li>
+            <li>Winners share 85% of the pool</li>
             <li>Rewards are distributed proportionally</li>
             <li>If no one wins, the match pool is added to the Final Prize Pool</li>
           </ul>

@@ -126,17 +126,34 @@ export default function Leaderboards() {
 
       const points = Array.isArray(state?.user_points) ? state.user_points : [];
 
-      const mapped: LbRow[] = points
+      // Build a map of wallet → points
+      const pointsMap = new Map<string, number>();
+      for (const [wallet, pts] of points) {
+        if (wallet) pointsMap.set(String(wallet).toLowerCase(), Number(pts ?? 0));
+      }
+
+      // Collect all participants from matches (users with predictions but possibly 0 points)
+      if (Array.isArray(state?.matches)) {
+        for (const m of state.matches as any[]) {
+          if (Array.isArray(m?.participants)) {
+            for (const p of m.participants) {
+              const hw = String(p ?? '').toLowerCase();
+              if (hw && !pointsMap.has(hw)) pointsMap.set(hw, 0);
+            }
+          }
+        }
+      }
+
+      const mapped: LbRow[] = Array.from(pointsMap.entries())
         .map(([wallet, totalPoints]) => ({
           rank: 0,
-          wallet: String(wallet),
-          totalPoints: Number(totalPoints ?? 0),
-          // TODO: Matches/Exact/Outcome per user not yet available from contract
+          wallet,
+          totalPoints,
           matches: 0,
           exact: 0,
           outcome: 0,
         }))
-        .filter((r) => r.wallet);
+        .filter((r) => !!r.wallet);
 
       mapped.sort((a, b) => {
         if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;

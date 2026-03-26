@@ -139,7 +139,8 @@ function getPhases(matches: MatchInfo[]): string[] {
   return Array.from(set).sort();
 }
 
-type SortField = 'match_id' | 'date';
+type SortField = 'match_id' | 'date' | 'az' | 'za';
+type StatusFilter = '' | 'predicted' | 'not_predicted';
 
 export const MatchesTableComponent: React.FC = () => {
   const { api, isApiReady } = useApi();
@@ -158,7 +159,9 @@ export const MatchesTableComponent: React.FC = () => {
   const [filterDate, setFilterDate] = useState('');
   const [sortField, setSortField] = useState<SortField>('match_id');
 
+  const [filterStatus, setFilterStatus] = useState<StatusFilter>('');
   const [claimLoadingId, setClaimLoadingId] = useState<string | null>(null);
+  const [userBetMatchIds, setUserBetMatchIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     void web3Enable('Bolao Matches UI');
@@ -202,6 +205,18 @@ export const MatchesTableComponent: React.FC = () => {
     fetchMatches();
   }, [fetchMatches]);
 
+  const fetchUserBets = useCallback(async () => {
+    if (!api || !isApiReady || !account) return;
+    try {
+      const svc = new Service(new Program(api, PROGRAM_ID as HexString));
+      const bets = (await (svc as any).queryBetsByUser(account.decodedAddress)) as any[];
+      const ids = new Set((bets ?? []).map((b: any) => String(b?.match_id ?? '')));
+      setUserBetMatchIds(ids);
+    } catch { setUserBetMatchIds(new Set()); }
+  }, [api, isApiReady, account]);
+
+  useEffect(() => { void fetchUserBets(); }, [fetchUserBets]);
+
   const phases = useMemo(() => getPhases(matches ?? []), [matches]);
 
   const filteredMatches = useMemo(() => {
@@ -233,9 +248,20 @@ export const MatchesTableComponent: React.FC = () => {
       });
     }
 
+    // Status filter
+    if (filterStatus === 'predicted') {
+      list = list.filter((m) => userBetMatchIds.has(m.match_id));
+    } else if (filterStatus === 'not_predicted') {
+      list = list.filter((m) => !userBetMatchIds.has(m.match_id));
+    }
+
     // Sort
     if (sortField === 'date') {
       list = [...list].sort((a, b) => Number(a.kick_off) - Number(b.kick_off));
+    } else if (sortField === 'az') {
+      list = [...list].sort((a, b) => (`${a.home} ${a.away}`).localeCompare(`${b.home} ${b.away}`));
+    } else if (sortField === 'za') {
+      list = [...list].sort((a, b) => (`${b.home} ${b.away}`).localeCompare(`${a.home} ${a.away}`));
     } else {
       // Default: match #
       list = [...list].sort((a, b) => {
@@ -247,7 +273,7 @@ export const MatchesTableComponent: React.FC = () => {
     }
 
     return list;
-  }, [matches, filterSearch, headerSearch, filterStage, filterDate, sortField]);
+  }, [matches, filterSearch, headerSearch, filterStage, filterDate, sortField, filterStatus, userBetMatchIds]);
 
   const handleClaim = useCallback(
     async (matchId: string) => {
@@ -326,7 +352,7 @@ export const MatchesTableComponent: React.FC = () => {
         <div className="mxFilters">
           <div className="mxFilters__left">
             <span className="mxPill">Prediction closes 10m before kickoff</span>
-            <span className="mxPill">75% Match / 20% Final / 5% DAO</span>
+            <span className="mxPill">85% Match / 10% Final / 5% DAO</span>
             <span className="mxPill">On-chain pools</span>
             <span className="mxPill mxPill--live">LIVE</span>
           </div>
@@ -339,6 +365,19 @@ export const MatchesTableComponent: React.FC = () => {
               aria-label="Sort by">
               <option value="match_id">Sort: Match #</option>
               <option value="date">Sort: Date</option>
+              <option value="az">Sort: A → Z</option>
+              <option value="za">Sort: Z → A</option>
+            </select>
+
+            {/* Status filter */}
+            <select
+              className="mxFilterSelect"
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value as StatusFilter)}
+              aria-label="Filter by prediction status">
+              <option value="">All Statuses</option>
+              <option value="predicted">Predicted</option>
+              <option value="not_predicted">Not Predicted</option>
             </select>
 
             {/* Stage filter */}
@@ -364,7 +403,7 @@ export const MatchesTableComponent: React.FC = () => {
             />
 
             {/* Clear filters */}
-            {(filterStage || filterDate || filterSearch || headerSearch) && (
+            {(filterStage || filterDate || filterSearch || headerSearch || filterStatus) && (
               <button
                 className="mxBtn mxBtn--ghost"
                 type="button"
@@ -373,6 +412,7 @@ export const MatchesTableComponent: React.FC = () => {
                   setFilterDate('');
                   setFilterSearch('');
                   setHeaderSearch('');
+                  setFilterStatus('');
                 }}>
                 Clear
               </button>
@@ -408,8 +448,10 @@ export const MatchesTableComponent: React.FC = () => {
                     ? `Live now ${r.home}-${r.away} (proposed).`
                     : `Open for predictions • ${closesLabel(m.kick_off)}.`;
 
+              const hasPrediction = userBetMatchIds.has(m.match_id);
+
               return (
-                <article className="mxCard" key={m.match_id}>
+                <article className={'mxCard' + (hasPrediction ? ' mxCard--predicted' : '')} key={m.match_id}>
                   <div className="mxCard__top">
                     <div className="mxTeams" title={`${m.home} vs ${m.away}`}>
                       <div className="mxTeam">
@@ -427,19 +469,29 @@ export const MatchesTableComponent: React.FC = () => {
                       <span className={'mxStatus mxStatus--' + r.label.toLowerCase()}>
                         {r.label === 'OPEN' ? 'OPEN' : r.label === 'LIVE' ? 'LIVE' : 'FINAL'}
                       </span>
+
+                      {hasPrediction && (
+                        <span className="mxStatus mxStatus--predicted">✓ Prediction made</span>
+                      )}
                     </div>
 
                     <div className="mxCard__topRight">
                       {r.label !== 'FINAL' ? <span className="mxPill">{closesLabel(m.kick_off)}</span> : null}
 
                       {r.label === 'FINAL' ? (
-                        /* Claim button — yellow/flashing as in My Predictions */
                         <button
                           className="mxBtn mxBtn--claim"
                           onClick={() => handleClaim(m.match_id)}
                           disabled={claimLoadingId === m.match_id}
                           type="button">
                           {claimLoadingId === m.match_id ? 'Claiming…' : 'Claim'}
+                        </button>
+                      ) : hasPrediction ? (
+                        <button
+                          className="mxBtn mxBtn--soft"
+                          onClick={() => navigate(`/2026worldcup/match/${m.match_id}`)}
+                          type="button">
+                          Details
                         </button>
                       ) : (
                         <button
