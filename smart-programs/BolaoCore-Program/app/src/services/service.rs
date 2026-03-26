@@ -7,12 +7,28 @@ use sails_rs::{
 use sails_rs::collections::HashMap as SailsHashMap;
 
 const PROTOCOL_FEE_BPS: u128 = 500; // 5%
-const FINAL_PRIZE_BPS: u128 = 2000; // 20%
+const FINAL_PRIZE_BPS: u128 = 1000; // 20%
 const BPS_DENOMINATOR: u128 = 10_000;
-
 const BET_CLOSE_WINDOW_SECONDS: u64 = 600; // 10 minutes
+const FINAL_PRIZE_TOP5_BPS: [u128; 5] = [4500, 2500, 1500, 1000, 500];
+
+
 
 pub static mut SMARTCUP_STATE: Option<SmartCupState> = None;
+
+
+
+#[derive(Debug, Clone, Encode, Decode, TypeInfo, PartialEq, Eq)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct FinalPrizeClaimStatus {
+    pub wallet: ActorId,
+    pub final_prize_finalized: bool,
+    pub eligible: bool,
+    pub amount_claimable: u128,
+    pub already_claimed: bool,
+    pub points: u32,
+}
 
 #[derive(Debug, Clone, Copy, Encode, Decode, TypeInfo, PartialEq, Eq)]
 #[codec(crate = sails_rs::scale_codec)]
@@ -74,17 +90,11 @@ pub struct Match {
     pub home: String,
     pub away: String,
     pub kick_off: u64,
-
     pub result: ResultStatus,
-
-    // 75% of stake goes here
     pub match_prize_pool: u128,
-
     pub has_bets: bool,
     pub participants: Vec<ActorId>,
-
     pub total_winner_stake: u128,
-
     pub total_claimed: u128,
     pub settlement_prepared: bool,
     pub dust_swept: bool,
@@ -180,7 +190,6 @@ fn eligible_for_payout(
     let knockout = is_knockout(phase_weight);
     let draw_final = final_score.home == final_score.away;
 
-    // Exact score eligibility (requires penalties correct too if draw+knockout)
     if bet_score == final_score {
         if knockout && draw_final {
             return bet_penalty_winner.is_some() && bet_penalty_winner == final_penalty_winner;
@@ -188,17 +197,13 @@ fn eligible_for_payout(
         return true;
     }
 
-    // Group: classic win/draw/loss
+    
     if !knockout {
         return outcome(bet_score) == outcome(final_score);
     }
 
-    // ✅ Knockout: "outcome" means who advances
     let final_adv = advance_outcome(final_score, final_penalty_winner);
 
-    // What did the bettor imply?
-    // - If they predicted a draw, their "advance" is determined by their penalty_winner
-    // - If they predicted non-draw, their "advance" is determined by win/loss in their score
     let bet_adv = if bet_score.home == bet_score.away {
         if bet_penalty_winner.is_none() {
             return false;
@@ -211,41 +216,75 @@ fn eligible_for_payout(
     bet_adv == final_adv
 }
 
+fn top5_share_sum_bps(start_pos: usize, end_pos_inclusive: usize) -> u128 {
+    let mut total = 0u128;
+    for pos in start_pos..=end_pos_inclusive {
+        total = total.saturating_add(FINAL_PRIZE_TOP5_BPS[pos - 1]);
+    }
+    total
+}
+
+fn collect_leaderboard(state: &SmartCupState) -> Vec<(ActorId, u32)> {
+    let mut wallets: Vec<ActorId> = Vec::new();
+
+    for (wallet, _) in state.user_bets.iter() {
+        wallets.push(*wallet);
+    }
+
+    for (wallet, _) in state.podium_picks.iter() {
+        if !wallets.contains(wallet) {
+            wallets.push(*wallet);
+        }
+    }
+
+    let mut leaderboard: Vec<(ActorId, u32)> = wallets
+        .into_iter()
+        .filter(|wallet| {
+            state
+                .user_bets
+                .get(wallet)
+                .map(|bets| bets.iter().any(|b| b.stake_in_match_pool > 0))
+                .unwrap_or(false)
+        })
+        .map(|wallet| {
+            let points = state.user_points.get(&wallet).cloned().unwrap_or(0);
+            (wallet, points)
+        })
+        .collect();
+
+    leaderboard.sort_by(|a, b| b.1.cmp(&a.1));
+    leaderboard
+}
+
+
 #[derive(Debug, Clone, Default)]
 pub struct SmartCupState {
     pub admin: ActorId,
-    pub final_prize_distributor: ActorId,
     pub protocol_fee_accumulated: u128,
     pub final_prize_accumulated: u128,
-
     pub matches: SailsHashMap<u64, Match>,
     pub phases: SailsHashMap<String, PhaseConfig>,
-
     pub user_points: SailsHashMap<ActorId, u32>,
-
-    // (user, match) -> bet
     pub bets: SailsHashMap<(ActorId, u64), Bet>,
-
     pub user_bets: SailsHashMap<ActorId, Vec<UserBetRecord>>,
-
     pub next_match_id: u64,
-
-    // Podium
     pub podium_picks: SailsHashMap<ActorId, PodiumPick>,
     pub podium_result: Option<PodiumResult>,
     pub podium_finalized: bool,
     pub r32_lock_time: Option<u64>,
-
-    // Oracle allowlist
     pub authorized_oracles: SailsHashMap<ActorId, bool>,
+    pub final_prize_finalized: bool,
+    pub final_prize_claimable_total: u128,
+    pub final_prize_rounding_dust: u128,
+    pub final_prize_allocations: SailsHashMap<ActorId, u128>,
+    pub final_prize_claimed: SailsHashMap<ActorId, bool>,
 }
 
 impl SmartCupState {
-    pub fn init(admin: ActorId, final_prize_distributor: ActorId) {
+    pub fn init(admin: ActorId) {
         unsafe {
             SMARTCUP_STATE = Some(Self {
                 admin,
-                final_prize_distributor,
                 ..Default::default()
             })
         }
@@ -298,6 +337,9 @@ pub enum SmartCupEvent {
     FinalPrizeSent(u128, ActorId),
     ProtocolFeesWithdrawn(u128, ActorId),
     AdminChanged(ActorId, ActorId),
+    FinalPrizePoolFinalized(u128, u128),
+    FinalPrizeClaimed(ActorId, u128),
+    FinalPrizeRoundingDustWithdrawn(u128, ActorId),
 }
 
 #[derive(Debug, Encode, Decode, TypeInfo, Clone)]
@@ -305,32 +347,26 @@ pub enum SmartCupEvent {
 #[scale_info(crate = sails_rs::scale_info)]
 pub struct IoSmartCupState {
     pub admin: ActorId,
-    pub final_prize_distributor: ActorId,
-
     pub protocol_fee_accumulated: u128,
     pub final_prize_accumulated: u128,
-
     pub matches: Vec<Match>,
     pub phases: Vec<PhaseConfig>,
-
     pub user_points: Vec<(ActorId, u32)>,
-
     pub podium_finalized: bool,
     pub r32_lock_time: Option<u64>,
+    pub final_prize_finalized: bool,
+    pub final_prize_claimable_total: u128,
+    pub final_prize_rounding_dust: u128,
 }
 
 impl From<SmartCupState> for IoSmartCupState {
     fn from(state: SmartCupState) -> Self {
         Self {
             admin: state.admin,
-            final_prize_distributor: state.final_prize_distributor,
-
             protocol_fee_accumulated: state.protocol_fee_accumulated,
             final_prize_accumulated: state.final_prize_accumulated,
-
             matches: state.matches.values().cloned().collect(),
             phases: state.phases.values().cloned().collect(),
-
             user_points: state
                 .user_points
                 .iter()
@@ -339,6 +375,9 @@ impl From<SmartCupState> for IoSmartCupState {
 
             podium_finalized: state.podium_finalized,
             r32_lock_time: state.r32_lock_time,
+            final_prize_finalized: state.final_prize_finalized,
+            final_prize_claimable_total: state.final_prize_claimable_total,
+            final_prize_rounding_dust: state.final_prize_rounding_dust,
         }
     }
 }
@@ -351,8 +390,8 @@ impl Service {
         Self
     }
 
-    pub fn seed(final_prize_distributor: ActorId) {
-        SmartCupState::init(msg::source(), final_prize_distributor)
+    pub fn seed(admin: ActorId) {
+        SmartCupState::init(admin)
     }
 }
 
@@ -476,8 +515,11 @@ impl Service {
 
         let m = state.matches.get_mut(&match_id).expect("Match not found");
 
-        // strict close window: 10 minutes before kickoff
         let close_time = m.kick_off.saturating_sub(BET_CLOSE_WINDOW_SECONDS);
+
+        if sent_value == 0 {
+            panic!("Bet amount must be greater than zero");
+                            } 
         if now >= close_time {
             panic!("Betting closed");
         }
@@ -495,11 +537,7 @@ impl Service {
             .unwrap_or(1);
         let knockout = is_knockout(phase_weight);
 
-        // ✅ User bet penalty rules:
-        // Group: penalty winner MUST be None
-        // Knockout:
-        //   - if predicted draw: penalty winner REQUIRED
-        //   - if predicted non-draw: penalty winner MUST be None
+        
         let predicted_draw = predicted_score.home == predicted_score.away;
 
         if !knockout {
@@ -533,7 +571,7 @@ impl Service {
             m.participants.push(bettor);
         }
 
-        // Store bet
+      
         let bet = Bet {
             user: bettor,
             match_id,
@@ -544,7 +582,6 @@ impl Service {
         };
         state.bets.insert((bettor, match_id), bet);
 
-        // Store user bet history (UI)
         let list = state.user_bets.entry(bettor).or_insert(Vec::new());
         list.push(UserBetRecord {
             match_id,
@@ -623,7 +660,7 @@ impl Service {
             .unwrap_or(1);
         let knockout = is_knockout(phase_weight);
 
-        // Result validation:
+
         let draw_final = final_score.home == final_score.away;
         if knockout {
             if draw_final && final_penalty_winner.is_none() {
@@ -678,10 +715,9 @@ impl Service {
                 if bet.score == final_score && penalties_correct {
                     added_points = 3u32.saturating_mul(phase_weight);
                 } else {
-                    // outcome points
+                    
                     if bet_outcome == final_outcome {
-                        // In knockout final draw case, bet_outcome already encodes "who advances";
-                        // for a draw-prediction bet, that required having penalty_winner.
+                        
                         added_points = phase_weight;
                     }
                 }
@@ -721,7 +757,7 @@ impl Service {
             .map(|p| p.points_weight)
             .unwrap_or(1);
 
-        // Determine eligible stake (exact score OR correct outcome)
+       
         let mut total_winner_stake: u128 = 0;
         for participant in m.participants.iter() {
             if let Some(bet) = state.bets.get(&(*participant, match_id)) {
@@ -739,7 +775,7 @@ impl Service {
             }
         }
 
-        // No eligible winners => roll entire match pool to final prize immediately
+        
         if total_winner_stake == 0 {
             state.final_prize_accumulated = state
                 .final_prize_accumulated
@@ -800,7 +836,7 @@ impl Service {
             .map(|p| p.points_weight)
             .unwrap_or(1);
 
-        // Exact score OR correct outcome
+        
         let eligible = eligible_for_payout(
             bet.score,
             bet.penalty_winner,
@@ -835,38 +871,7 @@ impl Service {
         SmartCupEvent::MatchRewardClaimed(match_id, caller, share)
     }
 
-    #[export]
-    pub fn sweep_match_dust_to_final_prize(&mut self, match_id: u64) -> SmartCupEvent {
-        let state = SmartCupState::state_mut();
-        let m = state.matches.get_mut(&match_id).expect("No such match");
-
-        if !m.settlement_prepared {
-            panic!("Settlement not prepared");
-        }
-        if m.dust_swept {
-            panic!("Dust already swept");
-        }
-
-        if m.match_prize_pool == 0 {
-            m.dust_swept = true;
-            self.emit_event(SmartCupEvent::MatchDustSwept(match_id, 0))
-                .expect("event");
-            return SmartCupEvent::MatchDustSwept(match_id, 0);
-        }
-
-       
-        let dust = m.match_prize_pool.saturating_sub(m.total_claimed);
-
-      
-        state.final_prize_accumulated = state.final_prize_accumulated.saturating_add(dust);
-
-        m.match_prize_pool = 0;
-        m.dust_swept = true;
-
-        self.emit_event(SmartCupEvent::MatchDustSwept(match_id, dust))
-            .expect("event");
-        SmartCupEvent::MatchDustSwept(match_id, dust)
-    }
+    
 
     #[export]
     pub fn submit_podium_pick(
@@ -958,27 +963,153 @@ impl Service {
         events
     }
 
+
+
     #[export]
-    pub fn send_final_prize(&mut self) -> SmartCupEvent {
-        let state = SmartCupState::state_mut();
-        state.only_admin();
+    pub fn finalize_final_prize_pool(&mut self) -> SmartCupEvent {
+    let state = SmartCupState::state_mut();
+    state.only_admin();
 
-        let to = state.final_prize_distributor;
-        let amt = state.final_prize_accumulated;
+    if state.final_prize_finalized {
+        panic!("Final prize already finalized");
+    }
 
-        if amt == 0 {
-            panic!("No final prize");
+    if !state.podium_finalized {
+        panic!("Podium not finalized");
+    }
+
+    {
+        for m in state.matches.values() {
+            match m.result {
+                ResultStatus::Finalized { .. } => {}
+                _ => panic!("Not all matches finalized"),
+            }
+
+            if !m.settlement_prepared {
+                panic!("Not all match settlements prepared");
+            }
+
+            if !m.dust_swept {
+                panic!("Not all match dust swept");
+            }
+        }
+    }
+
+    let pool = state.final_prize_accumulated;
+    if pool == 0 {
+        panic!("No final prize pool");
+    }
+
+    let leaderboard = collect_leaderboard(state);
+    if leaderboard.is_empty() {
+        panic!("No participants");
+    }
+
+    let mut i: usize = 0;
+    let mut current_position: usize = 1;
+    let mut total_allocated: u128 = 0;
+
+    while i < leaderboard.len() && current_position <= 5 {
+        let tied_points = leaderboard[i].1;
+        let mut j = i + 1;
+
+        while j < leaderboard.len() && leaderboard[j].1 == tied_points {
+            j += 1;
         }
 
-        state.final_prize_accumulated = 0;
+        let group_size = j - i;
+        let start_pos = current_position;
+        let end_pos = current_position + group_size - 1;
+        let affected_end = end_pos.min(5);
 
-        // native VARA transfer
-        msg::send(to, (), amt).expect("Final prize transfer failed");
+        if start_pos <= 5 {
+            let group_bps = top5_share_sum_bps(start_pos, affected_end);
 
-        self.emit_event(SmartCupEvent::FinalPrizeSent(amt, to))
-            .expect("event");
-        SmartCupEvent::FinalPrizeSent(amt, to)
+            if group_bps > 0 {
+                let group_amount = pool.saturating_mul(group_bps) / BPS_DENOMINATOR;
+                let per_wallet = group_amount / (group_size as u128);
+
+                if per_wallet > 0 {
+                    for k in i..j {
+                        let wallet = leaderboard[k].0;
+                        state.final_prize_allocations.insert(wallet, per_wallet);
+                        state.final_prize_claimed.insert(wallet, false);
+                    }
+
+                    total_allocated = total_allocated
+                        .saturating_add(per_wallet.saturating_mul(group_size as u128));
+                }
+            }
+        }
+
+        current_position = current_position.saturating_add(group_size);
+        i = j;
     }
+
+    if total_allocated == 0 {
+        panic!("Nothing allocated");
+    }
+
+    state.final_prize_finalized = true;
+    state.final_prize_claimable_total = total_allocated;
+    state.final_prize_rounding_dust = pool.saturating_sub(total_allocated);
+    state.final_prize_accumulated = 0;
+
+    self.emit_event(SmartCupEvent::FinalPrizePoolFinalized(
+        total_allocated,
+        state.final_prize_rounding_dust,
+    ))
+    .expect("event");
+
+    SmartCupEvent::FinalPrizePoolFinalized(
+        total_allocated,
+        state.final_prize_rounding_dust,
+    )
+}
+
+#[export]
+pub fn claim_final_prize(&mut self) -> SmartCupEvent {
+    let state = SmartCupState::state_mut();
+    let caller = msg::source();
+
+    if !state.final_prize_finalized {
+        panic!("Final prize not finalized");
+    }
+
+    let already_claimed = state
+        .final_prize_claimed
+        .get(&caller)
+        .cloned()
+        .unwrap_or(false);
+
+    if already_claimed {
+        panic!("Final prize already claimed");
+    }
+
+    let amount = state
+        .final_prize_allocations
+        .get(&caller)
+        .cloned()
+        .unwrap_or(0);
+
+    if amount == 0 {
+        panic!("Not eligible for final prize");
+    }
+
+    state.final_prize_claimed.insert(caller, true);
+    state.final_prize_claimable_total =
+        state.final_prize_claimable_total.saturating_sub(amount);
+
+    msg::send_with_gas(caller, (), 0, amount)
+        .unwrap_or_else(|_| panic!("Failed to send final prize"));
+
+    self.emit_event(SmartCupEvent::FinalPrizeClaimed(caller, amount))
+        .expect("event");
+
+    SmartCupEvent::FinalPrizeClaimed(caller, amount)
+}
+
+   
 
     #[export]
     pub fn withdraw_protocol_fees(&mut self) -> SmartCupEvent {
@@ -1018,6 +1149,66 @@ impl Service {
 
         SmartCupEvent::AdminChanged(old, new_admin)
     }
+
+#[export]
+pub fn sweep_match_dust_to_final_prize(&mut self, match_id: u64) -> SmartCupEvent {
+    let state = SmartCupState::state_mut();
+    state.only_admin();
+
+    let m = state.matches.get_mut(&match_id).expect("No such match");
+
+    if !m.settlement_prepared {
+        panic!("Settlement not prepared");
+    }
+
+    if m.dust_swept {
+        panic!("Dust already swept");
+    }
+
+    if m.match_prize_pool == 0 {
+        m.dust_swept = true;
+
+        self.emit_event(SmartCupEvent::MatchDustSwept(match_id, 0))
+            .expect("event");
+        return SmartCupEvent::MatchDustSwept(match_id, 0);
+    }
+
+    let dust = m.match_prize_pool.saturating_sub(m.total_claimed);
+
+    state.final_prize_accumulated = state.final_prize_accumulated.saturating_add(dust);
+
+    m.match_prize_pool = 0;
+    m.dust_swept = true;
+
+    self.emit_event(SmartCupEvent::MatchDustSwept(match_id, dust))
+        .expect("event");
+    SmartCupEvent::MatchDustSwept(match_id, dust)
+}
+
+#[export]
+pub fn withdraw_final_prize_rounding_dust(&mut self) -> SmartCupEvent {
+    let state = SmartCupState::state_mut();
+    state.only_admin();
+
+    if !state.final_prize_finalized {
+        panic!("Final prize not finalized");
+    }
+
+    let amt = state.final_prize_rounding_dust;
+    if amt == 0 {
+        panic!("No final prize rounding dust");
+    }
+
+    let to = state.admin;
+    state.final_prize_rounding_dust = 0;
+
+    msg::send(to, (), amt).expect("Final prize rounding dust transfer failed");
+
+    self.emit_event(SmartCupEvent::FinalPrizeRoundingDustWithdrawn(amt, to))
+        .expect("event");
+
+    SmartCupEvent::FinalPrizeRoundingDustWithdrawn(amt, to)
+}
 
     #[export]
     pub fn query_match(&self, match_id: u64) -> Option<Match> {
@@ -1154,4 +1345,30 @@ impl Service {
         }
         out
     }
+
+    #[export]
+pub fn query_final_prize_claim_status(&self, wallet: ActorId) -> FinalPrizeClaimStatus {
+    let state = SmartCupState::state_ref();
+
+    let points = state.user_points.get(&wallet).cloned().unwrap_or(0);
+    let allocated = state
+        .final_prize_allocations
+        .get(&wallet)
+        .cloned()
+        .unwrap_or(0);
+    let already_claimed = state
+        .final_prize_claimed
+        .get(&wallet)
+        .cloned()
+        .unwrap_or(false);
+
+    FinalPrizeClaimStatus {
+        wallet,
+        final_prize_finalized: state.final_prize_finalized,
+        eligible: allocated > 0,
+        amount_claimable: if already_claimed { 0 } else { allocated },
+        already_claimed,
+        points,
+    }
+}
 }

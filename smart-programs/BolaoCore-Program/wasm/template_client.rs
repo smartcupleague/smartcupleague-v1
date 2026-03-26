@@ -11,21 +11,16 @@ pub struct TemplateFactory<R> {
     #[allow(dead_code)]
     remoting: R,
 }
-
 impl<R> TemplateFactory<R> {
     #[allow(unused)]
     pub fn new(remoting: R) -> Self {
         Self { remoting }
     }
 }
-
 impl<R: Remoting + Clone> traits::TemplateFactory for TemplateFactory<R> {
     type Args = R::Args;
-    fn new(&self, final_prize_distributor: ActorId) -> impl Activation<Args = R::Args> {
-        RemotingAction::<_, template_factory::io::New>::new(
-            self.remoting.clone(),
-            final_prize_distributor,
-        )
+    fn new(&self, admin: ActorId) -> impl Activation<Args = R::Args> {
+        RemotingAction::<_, template_factory::io::New>::new(self.remoting.clone(), admin)
     }
 }
 
@@ -35,14 +30,12 @@ pub mod template_factory {
         use super::*;
         use sails_rs::calls::ActionIo;
         pub struct New(());
-
         impl New {
             #[allow(dead_code)]
-            pub fn encode_call(final_prize_distributor: ActorId) -> Vec<u8> {
-                <New as ActionIo>::encode_call(&final_prize_distributor)
+            pub fn encode_call(admin: ActorId) -> Vec<u8> {
+                <New as ActionIo>::encode_call(&admin)
             }
         }
-
         impl ActionIo for New {
             const ROUTE: &'static [u8] = &[12, 78, 101, 119];
             type Params = ActorId;
@@ -53,13 +46,11 @@ pub mod template_factory {
 pub struct Service<R> {
     remoting: R,
 }
-
 impl<R> Service<R> {
     pub fn new(remoting: R) -> Self {
         Self { remoting }
     }
 }
-
 impl<R: Remoting + Clone> traits::Service for Service<R> {
     type Args = R::Args;
     fn change_admin(
@@ -68,11 +59,17 @@ impl<R: Remoting + Clone> traits::Service for Service<R> {
     ) -> impl Call<Output = SmartCupEvent, Args = R::Args> {
         RemotingAction::<_, service::io::ChangeAdmin>::new(self.remoting.clone(), new_admin)
     }
+    fn claim_final_prize(&mut self) -> impl Call<Output = SmartCupEvent, Args = R::Args> {
+        RemotingAction::<_, service::io::ClaimFinalPrize>::new(self.remoting.clone(), ())
+    }
     fn claim_match_reward(
         &mut self,
         match_id: u64,
     ) -> impl Call<Output = SmartCupEvent, Args = R::Args> {
         RemotingAction::<_, service::io::ClaimMatchReward>::new(self.remoting.clone(), match_id)
+    }
+    fn finalize_final_prize_pool(&mut self) -> impl Call<Output = SmartCupEvent, Args = R::Args> {
+        RemotingAction::<_, service::io::FinalizeFinalPrizePool>::new(self.remoting.clone(), ())
     }
     fn finalize_podium(
         &mut self,
@@ -146,9 +143,6 @@ impl<R: Remoting + Clone> traits::Service for Service<R> {
             (phase_name, start_time, end_time, points_weight),
         )
     }
-    fn send_final_prize(&mut self) -> impl Call<Output = SmartCupEvent, Args = R::Args> {
-        RemotingAction::<_, service::io::SendFinalPrize>::new(self.remoting.clone(), ())
-    }
     fn set_oracle_authorized(
         &mut self,
         oracle: ActorId,
@@ -179,6 +173,14 @@ impl<R: Remoting + Clone> traits::Service for Service<R> {
             match_id,
         )
     }
+    fn withdraw_final_prize_rounding_dust(
+        &mut self,
+    ) -> impl Call<Output = SmartCupEvent, Args = R::Args> {
+        RemotingAction::<_, service::io::WithdrawFinalPrizeRoundingDust>::new(
+            self.remoting.clone(),
+            (),
+        )
+    }
     fn withdraw_protocol_fees(&mut self) -> impl Call<Output = SmartCupEvent, Args = R::Args> {
         RemotingAction::<_, service::io::WithdrawProtocolFees>::new(self.remoting.clone(), ())
     }
@@ -187,6 +189,15 @@ impl<R: Remoting + Clone> traits::Service for Service<R> {
         user: ActorId,
     ) -> impl Query<Output = Vec<UserBetView>, Args = R::Args> {
         RemotingAction::<_, service::io::QueryBetsByUser>::new(self.remoting.clone(), user)
+    }
+    fn query_final_prize_claim_status(
+        &self,
+        wallet: ActorId,
+    ) -> impl Query<Output = FinalPrizeClaimStatus, Args = R::Args> {
+        RemotingAction::<_, service::io::QueryFinalPrizeClaimStatus>::new(
+            self.remoting.clone(),
+            wallet,
+        )
     }
     fn query_match(&self, match_id: u64) -> impl Query<Output = Option<Match>, Args = R::Args> {
         RemotingAction::<_, service::io::QueryMatch>::new(self.remoting.clone(), match_id)
@@ -218,14 +229,12 @@ pub mod service {
         use super::*;
         use sails_rs::calls::ActionIo;
         pub struct ChangeAdmin(());
-
         impl ChangeAdmin {
             #[allow(dead_code)]
             pub fn encode_call(new_admin: ActorId) -> Vec<u8> {
                 <ChangeAdmin as ActionIo>::encode_call(&new_admin)
             }
         }
-
         impl ActionIo for ChangeAdmin {
             const ROUTE: &'static [u8] = &[
                 28, 83, 101, 114, 118, 105, 99, 101, 44, 67, 104, 97, 110, 103, 101, 65, 100, 109,
@@ -234,15 +243,28 @@ pub mod service {
             type Params = ActorId;
             type Reply = super::SmartCupEvent;
         }
+        pub struct ClaimFinalPrize(());
+        impl ClaimFinalPrize {
+            #[allow(dead_code)]
+            pub fn encode_call() -> Vec<u8> {
+                <ClaimFinalPrize as ActionIo>::encode_call(&())
+            }
+        }
+        impl ActionIo for ClaimFinalPrize {
+            const ROUTE: &'static [u8] = &[
+                28, 83, 101, 114, 118, 105, 99, 101, 60, 67, 108, 97, 105, 109, 70, 105, 110, 97,
+                108, 80, 114, 105, 122, 101,
+            ];
+            type Params = ();
+            type Reply = super::SmartCupEvent;
+        }
         pub struct ClaimMatchReward(());
-
         impl ClaimMatchReward {
             #[allow(dead_code)]
             pub fn encode_call(match_id: u64) -> Vec<u8> {
                 <ClaimMatchReward as ActionIo>::encode_call(&match_id)
             }
         }
-
         impl ActionIo for ClaimMatchReward {
             const ROUTE: &'static [u8] = &[
                 28, 83, 101, 114, 118, 105, 99, 101, 64, 67, 108, 97, 105, 109, 77, 97, 116, 99,
@@ -251,8 +273,22 @@ pub mod service {
             type Params = u64;
             type Reply = super::SmartCupEvent;
         }
+        pub struct FinalizeFinalPrizePool(());
+        impl FinalizeFinalPrizePool {
+            #[allow(dead_code)]
+            pub fn encode_call() -> Vec<u8> {
+                <FinalizeFinalPrizePool as ActionIo>::encode_call(&())
+            }
+        }
+        impl ActionIo for FinalizeFinalPrizePool {
+            const ROUTE: &'static [u8] = &[
+                28, 83, 101, 114, 118, 105, 99, 101, 88, 70, 105, 110, 97, 108, 105, 122, 101, 70,
+                105, 110, 97, 108, 80, 114, 105, 122, 101, 80, 111, 111, 108,
+            ];
+            type Params = ();
+            type Reply = super::SmartCupEvent;
+        }
         pub struct FinalizePodium(());
-
         impl FinalizePodium {
             #[allow(dead_code)]
             pub fn encode_call(
@@ -263,7 +299,6 @@ pub mod service {
                 <FinalizePodium as ActionIo>::encode_call(&(champion, runner_up, third_place))
             }
         }
-
         impl ActionIo for FinalizePodium {
             const ROUTE: &'static [u8] = &[
                 28, 83, 101, 114, 118, 105, 99, 101, 56, 70, 105, 110, 97, 108, 105, 122, 101, 80,
@@ -273,14 +308,12 @@ pub mod service {
             type Reply = Vec<super::SmartCupEvent>;
         }
         pub struct FinalizeResult(());
-
         impl FinalizeResult {
             #[allow(dead_code)]
             pub fn encode_call(match_id: u64) -> Vec<u8> {
                 <FinalizeResult as ActionIo>::encode_call(&match_id)
             }
         }
-
         impl ActionIo for FinalizeResult {
             const ROUTE: &'static [u8] = &[
                 28, 83, 101, 114, 118, 105, 99, 101, 56, 70, 105, 110, 97, 108, 105, 122, 101, 82,
@@ -290,7 +323,6 @@ pub mod service {
             type Reply = super::SmartCupEvent;
         }
         pub struct PlaceBet(());
-
         impl PlaceBet {
             #[allow(dead_code)]
             pub fn encode_call(
@@ -305,7 +337,6 @@ pub mod service {
                 ))
             }
         }
-
         impl ActionIo for PlaceBet {
             const ROUTE: &'static [u8] = &[
                 28, 83, 101, 114, 118, 105, 99, 101, 32, 80, 108, 97, 99, 101, 66, 101, 116,
@@ -314,14 +345,12 @@ pub mod service {
             type Reply = super::SmartCupEvent;
         }
         pub struct PrepareMatchSettlement(());
-
         impl PrepareMatchSettlement {
             #[allow(dead_code)]
             pub fn encode_call(match_id: u64) -> Vec<u8> {
                 <PrepareMatchSettlement as ActionIo>::encode_call(&match_id)
             }
         }
-
         impl ActionIo for PrepareMatchSettlement {
             const ROUTE: &'static [u8] = &[
                 28, 83, 101, 114, 118, 105, 99, 101, 88, 80, 114, 101, 112, 97, 114, 101, 77, 97,
@@ -331,7 +360,6 @@ pub mod service {
             type Reply = super::SmartCupEvent;
         }
         pub struct ProposeResult(());
-
         impl ProposeResult {
             #[allow(dead_code)]
             pub fn encode_call(
@@ -342,7 +370,6 @@ pub mod service {
                 <ProposeResult as ActionIo>::encode_call(&(match_id, final_score, penalty_winner))
             }
         }
-
         impl ActionIo for ProposeResult {
             const ROUTE: &'static [u8] = &[
                 28, 83, 101, 114, 118, 105, 99, 101, 52, 80, 114, 111, 112, 111, 115, 101, 82, 101,
@@ -352,7 +379,6 @@ pub mod service {
             type Reply = super::SmartCupEvent;
         }
         pub struct RegisterMatch(());
-
         impl RegisterMatch {
             #[allow(dead_code)]
             pub fn encode_call(
@@ -364,7 +390,6 @@ pub mod service {
                 <RegisterMatch as ActionIo>::encode_call(&(phase, home, away, kick_off))
             }
         }
-
         impl ActionIo for RegisterMatch {
             const ROUTE: &'static [u8] = &[
                 28, 83, 101, 114, 118, 105, 99, 101, 52, 82, 101, 103, 105, 115, 116, 101, 114, 77,
@@ -374,7 +399,6 @@ pub mod service {
             type Reply = super::SmartCupEvent;
         }
         pub struct RegisterPhase(());
-
         impl RegisterPhase {
             #[allow(dead_code)]
             pub fn encode_call(
@@ -391,7 +415,6 @@ pub mod service {
                 ))
             }
         }
-
         impl ActionIo for RegisterPhase {
             const ROUTE: &'static [u8] = &[
                 28, 83, 101, 114, 118, 105, 99, 101, 52, 82, 101, 103, 105, 115, 116, 101, 114, 80,
@@ -400,32 +423,13 @@ pub mod service {
             type Params = (String, u64, u64, u32);
             type Reply = super::SmartCupEvent;
         }
-        pub struct SendFinalPrize(());
-
-        impl SendFinalPrize {
-            #[allow(dead_code)]
-            pub fn encode_call() -> Vec<u8> {
-                <SendFinalPrize as ActionIo>::encode_call(&())
-            }
-        }
-
-        impl ActionIo for SendFinalPrize {
-            const ROUTE: &'static [u8] = &[
-                28, 83, 101, 114, 118, 105, 99, 101, 56, 83, 101, 110, 100, 70, 105, 110, 97, 108,
-                80, 114, 105, 122, 101,
-            ];
-            type Params = ();
-            type Reply = super::SmartCupEvent;
-        }
         pub struct SetOracleAuthorized(());
-
         impl SetOracleAuthorized {
             #[allow(dead_code)]
             pub fn encode_call(oracle: ActorId, authorized: bool) -> Vec<u8> {
                 <SetOracleAuthorized as ActionIo>::encode_call(&(oracle, authorized))
             }
         }
-
         impl ActionIo for SetOracleAuthorized {
             const ROUTE: &'static [u8] = &[
                 28, 83, 101, 114, 118, 105, 99, 101, 76, 83, 101, 116, 79, 114, 97, 99, 108, 101,
@@ -435,7 +439,6 @@ pub mod service {
             type Reply = super::SmartCupEvent;
         }
         pub struct SubmitPodiumPick(());
-
         impl SubmitPodiumPick {
             #[allow(dead_code)]
             pub fn encode_call(
@@ -446,7 +449,6 @@ pub mod service {
                 <SubmitPodiumPick as ActionIo>::encode_call(&(champion, runner_up, third_place))
             }
         }
-
         impl ActionIo for SubmitPodiumPick {
             const ROUTE: &'static [u8] = &[
                 28, 83, 101, 114, 118, 105, 99, 101, 64, 83, 117, 98, 109, 105, 116, 80, 111, 100,
@@ -456,14 +458,12 @@ pub mod service {
             type Reply = super::SmartCupEvent;
         }
         pub struct SweepMatchDustToFinalPrize(());
-
         impl SweepMatchDustToFinalPrize {
             #[allow(dead_code)]
             pub fn encode_call(match_id: u64) -> Vec<u8> {
                 <SweepMatchDustToFinalPrize as ActionIo>::encode_call(&match_id)
             }
         }
-
         impl ActionIo for SweepMatchDustToFinalPrize {
             const ROUTE: &'static [u8] = &[
                 28, 83, 101, 114, 118, 105, 99, 101, 104, 83, 119, 101, 101, 112, 77, 97, 116, 99,
@@ -472,15 +472,29 @@ pub mod service {
             type Params = u64;
             type Reply = super::SmartCupEvent;
         }
+        pub struct WithdrawFinalPrizeRoundingDust(());
+        impl WithdrawFinalPrizeRoundingDust {
+            #[allow(dead_code)]
+            pub fn encode_call() -> Vec<u8> {
+                <WithdrawFinalPrizeRoundingDust as ActionIo>::encode_call(&())
+            }
+        }
+        impl ActionIo for WithdrawFinalPrizeRoundingDust {
+            const ROUTE: &'static [u8] = &[
+                28, 83, 101, 114, 118, 105, 99, 101, 120, 87, 105, 116, 104, 100, 114, 97, 119, 70,
+                105, 110, 97, 108, 80, 114, 105, 122, 101, 82, 111, 117, 110, 100, 105, 110, 103,
+                68, 117, 115, 116,
+            ];
+            type Params = ();
+            type Reply = super::SmartCupEvent;
+        }
         pub struct WithdrawProtocolFees(());
-
         impl WithdrawProtocolFees {
             #[allow(dead_code)]
             pub fn encode_call() -> Vec<u8> {
                 <WithdrawProtocolFees as ActionIo>::encode_call(&())
             }
         }
-
         impl ActionIo for WithdrawProtocolFees {
             const ROUTE: &'static [u8] = &[
                 28, 83, 101, 114, 118, 105, 99, 101, 80, 87, 105, 116, 104, 100, 114, 97, 119, 80,
@@ -490,14 +504,12 @@ pub mod service {
             type Reply = super::SmartCupEvent;
         }
         pub struct QueryBetsByUser(());
-
         impl QueryBetsByUser {
             #[allow(dead_code)]
             pub fn encode_call(user: ActorId) -> Vec<u8> {
                 <QueryBetsByUser as ActionIo>::encode_call(&user)
             }
         }
-
         impl ActionIo for QueryBetsByUser {
             const ROUTE: &'static [u8] = &[
                 28, 83, 101, 114, 118, 105, 99, 101, 60, 81, 117, 101, 114, 121, 66, 101, 116, 115,
@@ -506,15 +518,28 @@ pub mod service {
             type Params = ActorId;
             type Reply = Vec<super::UserBetView>;
         }
+        pub struct QueryFinalPrizeClaimStatus(());
+        impl QueryFinalPrizeClaimStatus {
+            #[allow(dead_code)]
+            pub fn encode_call(wallet: ActorId) -> Vec<u8> {
+                <QueryFinalPrizeClaimStatus as ActionIo>::encode_call(&wallet)
+            }
+        }
+        impl ActionIo for QueryFinalPrizeClaimStatus {
+            const ROUTE: &'static [u8] = &[
+                28, 83, 101, 114, 118, 105, 99, 101, 104, 81, 117, 101, 114, 121, 70, 105, 110, 97,
+                108, 80, 114, 105, 122, 101, 67, 108, 97, 105, 109, 83, 116, 97, 116, 117, 115,
+            ];
+            type Params = ActorId;
+            type Reply = super::FinalPrizeClaimStatus;
+        }
         pub struct QueryMatch(());
-
         impl QueryMatch {
             #[allow(dead_code)]
             pub fn encode_call(match_id: u64) -> Vec<u8> {
                 <QueryMatch as ActionIo>::encode_call(&match_id)
             }
         }
-
         impl ActionIo for QueryMatch {
             const ROUTE: &'static [u8] = &[
                 28, 83, 101, 114, 118, 105, 99, 101, 40, 81, 117, 101, 114, 121, 77, 97, 116, 99,
@@ -524,14 +549,12 @@ pub mod service {
             type Reply = Option<super::Match>;
         }
         pub struct QueryMatchesByPhase(());
-
         impl QueryMatchesByPhase {
             #[allow(dead_code)]
             pub fn encode_call(phase: String) -> Vec<u8> {
                 <QueryMatchesByPhase as ActionIo>::encode_call(&phase)
             }
         }
-
         impl ActionIo for QueryMatchesByPhase {
             const ROUTE: &'static [u8] = &[
                 28, 83, 101, 114, 118, 105, 99, 101, 76, 81, 117, 101, 114, 121, 77, 97, 116, 99,
@@ -541,14 +564,12 @@ pub mod service {
             type Reply = Vec<super::Match>;
         }
         pub struct QueryState(());
-
         impl QueryState {
             #[allow(dead_code)]
             pub fn encode_call() -> Vec<u8> {
                 <QueryState as ActionIo>::encode_call(&())
             }
         }
-
         impl ActionIo for QueryState {
             const ROUTE: &'static [u8] = &[
                 28, 83, 101, 114, 118, 105, 99, 101, 40, 81, 117, 101, 114, 121, 83, 116, 97, 116,
@@ -558,14 +579,12 @@ pub mod service {
             type Reply = super::IoSmartCupState;
         }
         pub struct QueryUserPoints(());
-
         impl QueryUserPoints {
             #[allow(dead_code)]
             pub fn encode_call(user: ActorId) -> Vec<u8> {
                 <QueryUserPoints as ActionIo>::encode_call(&user)
             }
         }
-
         impl ActionIo for QueryUserPoints {
             const ROUTE: &'static [u8] = &[
                 28, 83, 101, 114, 118, 105, 99, 101, 60, 81, 117, 101, 114, 121, 85, 115, 101, 114,
@@ -575,14 +594,12 @@ pub mod service {
             type Reply = u32;
         }
         pub struct QueryWalletClaimStatus(());
-
         impl QueryWalletClaimStatus {
             #[allow(dead_code)]
             pub fn encode_call(wallet: ActorId) -> Vec<u8> {
                 <QueryWalletClaimStatus as ActionIo>::encode_call(&wallet)
             }
         }
-
         impl ActionIo for QueryWalletClaimStatus {
             const ROUTE: &'static [u8] = &[
                 28, 83, 101, 114, 118, 105, 99, 101, 88, 81, 117, 101, 114, 121, 87, 97, 108, 108,
@@ -617,6 +634,9 @@ pub mod service {
             FinalPrizeSent((u128, ActorId)),
             ProtocolFeesWithdrawn((u128, ActorId)),
             AdminChanged((ActorId, ActorId)),
+            FinalPrizePoolFinalized((u128, u128)),
+            FinalPrizeClaimed((ActorId, u128)),
+            FinalPrizeRoundingDustWithdrawn((u128, ActorId)),
         }
         impl EventIo for ServiceEvents {
             const ROUTE: &'static [u8] = &[28, 83, 101, 114, 118, 105, 99, 101];
@@ -670,10 +690,21 @@ pub mod service {
                     100, 114, 97, 119, 110,
                 ],
                 &[48, 65, 100, 109, 105, 110, 67, 104, 97, 110, 103, 101, 100],
+                &[
+                    92, 70, 105, 110, 97, 108, 80, 114, 105, 122, 101, 80, 111, 111, 108, 70, 105,
+                    110, 97, 108, 105, 122, 101, 100,
+                ],
+                &[
+                    68, 70, 105, 110, 97, 108, 80, 114, 105, 122, 101, 67, 108, 97, 105, 109, 101,
+                    100,
+                ],
+                &[
+                    124, 70, 105, 110, 97, 108, 80, 114, 105, 122, 101, 82, 111, 117, 110, 100,
+                    105, 110, 103, 68, 117, 115, 116, 87, 105, 116, 104, 100, 114, 97, 119, 110,
+                ],
             ];
             type Event = Self;
         }
-
         pub fn listener<R: Listener<Vec<u8>>>(remoting: R) -> impl Listener<ServiceEvents> {
             RemotingListener::<_, ServiceEvents>::new(remoting)
         }
@@ -702,6 +733,17 @@ pub struct UserBetView {
     pub penalty_winner: Option<PenaltyWinner>,
     pub stake_in_match_pool: u128,
     pub claimed: bool,
+}
+#[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
+#[codec(crate = sails_rs::scale_codec)]
+#[scale_info(crate = sails_rs::scale_info)]
+pub struct FinalPrizeClaimStatus {
+    pub wallet: ActorId,
+    pub final_prize_finalized: bool,
+    pub eligible: bool,
+    pub amount_claimable: u128,
+    pub already_claimed: bool,
+    pub points: u32,
 }
 #[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]
@@ -741,7 +783,6 @@ pub enum ResultStatus {
 #[scale_info(crate = sails_rs::scale_info)]
 pub struct IoSmartCupState {
     pub admin: ActorId,
-    pub final_prize_distributor: ActorId,
     pub protocol_fee_accumulated: u128,
     pub final_prize_accumulated: u128,
     pub matches: Vec<Match>,
@@ -749,6 +790,9 @@ pub struct IoSmartCupState {
     pub user_points: Vec<(ActorId, u32)>,
     pub podium_finalized: bool,
     pub r32_lock_time: Option<u64>,
+    pub final_prize_finalized: bool,
+    pub final_prize_claimable_total: u128,
+    pub final_prize_rounding_dust: u128,
 }
 #[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]
@@ -775,7 +819,7 @@ pub mod traits {
         type Args;
         #[allow(clippy::new_ret_no_self)]
         #[allow(clippy::wrong_self_convention)]
-        fn new(&self, final_prize_distributor: ActorId) -> impl Activation<Args = Self::Args>;
+        fn new(&self, admin: ActorId) -> impl Activation<Args = Self::Args>;
     }
 
     #[allow(clippy::type_complexity)]
@@ -785,9 +829,13 @@ pub mod traits {
             &mut self,
             new_admin: ActorId,
         ) -> impl Call<Output = SmartCupEvent, Args = Self::Args>;
+        fn claim_final_prize(&mut self) -> impl Call<Output = SmartCupEvent, Args = Self::Args>;
         fn claim_match_reward(
             &mut self,
             match_id: u64,
+        ) -> impl Call<Output = SmartCupEvent, Args = Self::Args>;
+        fn finalize_final_prize_pool(
+            &mut self,
         ) -> impl Call<Output = SmartCupEvent, Args = Self::Args>;
         fn finalize_podium(
             &mut self,
@@ -829,7 +877,6 @@ pub mod traits {
             end_time: u64,
             points_weight: u32,
         ) -> impl Call<Output = SmartCupEvent, Args = Self::Args>;
-        fn send_final_prize(&mut self) -> impl Call<Output = SmartCupEvent, Args = Self::Args>;
         fn set_oracle_authorized(
             &mut self,
             oracle: ActorId,
@@ -845,6 +892,9 @@ pub mod traits {
             &mut self,
             match_id: u64,
         ) -> impl Call<Output = SmartCupEvent, Args = Self::Args>;
+        fn withdraw_final_prize_rounding_dust(
+            &mut self,
+        ) -> impl Call<Output = SmartCupEvent, Args = Self::Args>;
         fn withdraw_protocol_fees(
             &mut self,
         ) -> impl Call<Output = SmartCupEvent, Args = Self::Args>;
@@ -852,6 +902,10 @@ pub mod traits {
             &self,
             user: ActorId,
         ) -> impl Query<Output = Vec<UserBetView>, Args = Self::Args>;
+        fn query_final_prize_claim_status(
+            &self,
+            wallet: ActorId,
+        ) -> impl Query<Output = FinalPrizeClaimStatus, Args = Self::Args>;
         fn query_match(
             &self,
             match_id: u64,

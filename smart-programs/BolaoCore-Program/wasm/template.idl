@@ -16,6 +16,15 @@ type UserBetView = struct {
   claimed: bool,
 };
 
+type FinalPrizeClaimStatus = struct {
+  wallet: actor_id,
+  final_prize_finalized: bool,
+  eligible: bool,
+  amount_claimable: u128,
+  already_claimed: bool,
+  points: u32,
+};
+
 type Match = struct {
   match_id: u64,
   phase: str,
@@ -47,7 +56,6 @@ type ResultStatus = enum {
 
 type IoSmartCupState = struct {
   admin: actor_id,
-  final_prize_distributor: actor_id,
   protocol_fee_accumulated: u128,
   final_prize_accumulated: u128,
   matches: vec Match,
@@ -55,6 +63,9 @@ type IoSmartCupState = struct {
   user_points: vec struct { actor_id, u32 },
   podium_finalized: bool,
   r32_lock_time: opt u64,
+  final_prize_finalized: bool,
+  final_prize_claimable_total: u128,
+  final_prize_rounding_dust: u128,
 };
 
 type PhaseConfig = struct {
@@ -71,12 +82,14 @@ type WalletClaimStatus = struct {
 };
 
 constructor {
-  New : (final_prize_distributor: actor_id);
+  New : (admin: actor_id);
 };
 
 service Service {
   ChangeAdmin : (new_admin: actor_id) -> SmartCupEvent;
+  ClaimFinalPrize : () -> SmartCupEvent;
   ClaimMatchReward : (match_id: u64) -> SmartCupEvent;
+  FinalizeFinalPrizePool : () -> SmartCupEvent;
   FinalizePodium : (champion: str, runner_up: str, third_place: str) -> vec SmartCupEvent;
   FinalizeResult : (match_id: u64) -> SmartCupEvent;
   PlaceBet : (match_id: u64, predicted_score: Score, predicted_penalty_winner: opt PenaltyWinner) -> SmartCupEvent;
@@ -84,12 +97,13 @@ service Service {
   ProposeResult : (match_id: u64, final_score: Score, penalty_winner: opt PenaltyWinner) -> SmartCupEvent;
   RegisterMatch : (phase: str, home: str, away: str, kick_off: u64) -> SmartCupEvent;
   RegisterPhase : (phase_name: str, start_time: u64, end_time: u64, points_weight: u32) -> SmartCupEvent;
-  SendFinalPrize : () -> SmartCupEvent;
   SetOracleAuthorized : (oracle: actor_id, authorized: bool) -> SmartCupEvent;
   SubmitPodiumPick : (champion: str, runner_up: str, third_place: str) -> SmartCupEvent;
   SweepMatchDustToFinalPrize : (match_id: u64) -> SmartCupEvent;
+  WithdrawFinalPrizeRoundingDust : () -> SmartCupEvent;
   WithdrawProtocolFees : () -> SmartCupEvent;
   query QueryBetsByUser : (user: actor_id) -> vec UserBetView;
+  query QueryFinalPrizeClaimStatus : (wallet: actor_id) -> FinalPrizeClaimStatus;
   query QueryMatch : (match_id: u64) -> opt Match;
   query QueryMatchesByPhase : (phase: str) -> vec Match;
   query QueryState : () -> IoSmartCupState;
@@ -170,6 +184,18 @@ service Service {
     };
     AdminChanged: struct {
       actor_id,
+      actor_id,
+    };
+    FinalPrizePoolFinalized: struct {
+      u128,
+      u128,
+    };
+    FinalPrizeClaimed: struct {
+      actor_id,
+      u128,
+    };
+    FinalPrizeRoundingDustWithdrawn: struct {
+      u128,
       actor_id,
     };
   }
