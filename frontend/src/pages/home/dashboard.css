@@ -552,6 +552,41 @@ body {
   z-index: 1;
   padding: 0 18px 16px;
 }
+/* Trophy layout: image on left, content on right */
+.h-prize--with-trophy {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 8px 18px 20px;
+}
+.h-prize__trophy {
+  width: 130px;
+  height: auto;
+  flex-shrink: 0;
+  align-self: center;
+  filter:
+    drop-shadow(0 0 18px rgba(255, 200, 60, 0.55))
+    drop-shadow(0 0 36px rgba(255, 140, 20, 0.30))
+    drop-shadow(0 4px 12px rgba(0, 0, 0, 0.5));
+  animation: trophyFloat 4s ease-in-out infinite;
+}
+@keyframes trophyFloat {
+  0%, 100% { transform: translateY(0px) scale(1); }
+  50%       { transform: translateY(-5px) scale(1.02); }
+}
+.h-prize__content {
+  flex: 1;
+  min-width: 0;
+}
+@media (max-width: 600px) {
+  .h-prize--with-trophy {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  .h-prize__trophy { width: 100px; }
+  .h-prize__rows { text-align: left; }
+}
 .h-prize__big {
   display: flex;
   align-items: baseline;

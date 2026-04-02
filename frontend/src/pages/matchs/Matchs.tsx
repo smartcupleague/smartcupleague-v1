@@ -12,6 +12,8 @@ import { StyledWallet } from '@/components/wallet/Wallet';
 import { decodeAddress } from '@polkadot/util-crypto';
 import { u8aToHex } from '@polkadot/util';
 
+const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8000';
+
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as string;
 
 function normalizeTeamKey(team: string) {
@@ -210,6 +212,24 @@ function Match() {
   const [showMatchInfoModal, setShowMatchInfoModal] = useState(false);
   const [breakdown, setBreakdown] = useState<BreakdownData>({ show: false, matchPool: 0n, finalPrize: 0n, protocolFee: 0n });
 
+  // Pool distribution from API (home/draw/away bets)
+  const [apiPoolPercentages, setApiPoolPercentages] = useState<{ home: number; draw: number; away: number } | null>(null);
+
+  useEffect(() => {
+    if (!matchId) return;
+    fetch(`${API_BASE}/api/v1/stats/pools/${matchId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data || Number(data.total_bets) === 0) { setApiPoolPercentages(null); return; }
+        const total = Number(data.total_planck) || 0;
+        if (total === 0) { setApiPoolPercentages(null); return; }
+        const homePct = Math.round((Number(data.home_planck) / total) * 100);
+        const drawPct = Math.round((Number(data.draw_planck) / total) * 100);
+        setApiPoolPercentages({ home: homePct, draw: drawPct, away: 100 - homePct - drawPct });
+      })
+      .catch(() => setApiPoolPercentages(null));
+  }, [matchId]);
+
   const myWalletHex = useMemo(() => {
     const addr = account?.decodedAddress ?? (account as any)?.address ?? null;
     if (!addr) return null;
@@ -265,19 +285,24 @@ function Match() {
     return userBets.find((b) => String(b?.match_id) === String(matchId)) ?? null;
   }, [userBets, matchId]);
 
-  // Pool percentages for bars
+  // Pool percentages for bars — only show if breakdown data is available from contract
   const poolPercentages = useMemo(() => {
-    if (!selectedMatch) return { home: 33, draw: 34, away: 33 };
-    const h = Math.max(0, Number(selectedMatch.pool_home ?? 0));
-    const d = Math.max(0, Number(selectedMatch.pool_draw ?? 0));
-    const a = Math.max(0, Number(selectedMatch.pool_away ?? 0));
-    const total = h + d + a;
-    if (total <= 0) return { home: 33, draw: 34, away: 33 };
-    return {
-      home: Math.round((h / total) * 100),
-      draw: Math.round((d / total) * 100),
-      away: 100 - Math.round((h / total) * 100) - Math.round((d / total) * 100),
-    };
+    if (!selectedMatch) return null;
+    try {
+      const h = BigInt(String(selectedMatch.pool_home ?? '0').trim() || '0');
+      const d = BigInt(String(selectedMatch.pool_draw ?? '0').trim() || '0');
+      const a = BigInt(String(selectedMatch.pool_away ?? '0').trim() || '0');
+      const total = h + d + a;
+      if (total <= 0n) return null; // no breakdown data from contract
+      const t = Number(total);
+      return {
+        home: Math.round((Number(h) / t) * 100),
+        draw: Math.round((Number(d) / t) * 100),
+        away: 100 - Math.round((Number(h) / t) * 100) - Math.round((Number(d) / t) * 100),
+      };
+    } catch {
+      return null;
+    }
   }, [selectedMatch]);
 
   const addressDisplay = formatAddress(account?.decodedAddress);
@@ -370,31 +395,40 @@ function Match() {
                   </b>
                 </div>
 
-                <div className="barGroup">
-                  <div className="barRow">
-                    <span>{homeName}</span>
-                    <span className="dim">{poolPercentages.home}%</span>
-                  </div>
-                  <div className="bar">
-                    <i style={{ width: `${poolPercentages.home}%` }} />
-                  </div>
+                {(apiPoolPercentages ?? poolPercentages) ? (() => {
+                  const pct = (apiPoolPercentages ?? poolPercentages)!;
+                  return (
+                    <div className="barGroup">
+                      <div className="barRow">
+                        <span>{homeName}</span>
+                        <span className="dim">{pct.home}%</span>
+                      </div>
+                      <div className="bar">
+                        <i style={{ width: `${pct.home}%` }} />
+                      </div>
 
-                  <div className="barRow">
-                    <span>Draw</span>
-                    <span className="dim">{poolPercentages.draw}%</span>
-                  </div>
-                  <div className="bar">
-                    <i style={{ width: `${poolPercentages.draw}%` }} />
-                  </div>
+                      <div className="barRow">
+                        <span>Draw</span>
+                        <span className="dim">{pct.draw}%</span>
+                      </div>
+                      <div className="bar">
+                        <i style={{ width: `${pct.draw}%` }} />
+                      </div>
 
-                  <div className="barRow">
-                    <span>{awayName}</span>
-                    <span className="dim">{poolPercentages.away}%</span>
+                      <div className="barRow">
+                        <span>{awayName}</span>
+                        <span className="dim">{pct.away}%</span>
+                      </div>
+                      <div className="bar">
+                        <i style={{ width: `${pct.away}%` }} />
+                      </div>
+                    </div>
+                  );
+                })() : (
+                  <div className="sideHint dim" style={{ marginTop: 8 }}>
+                    No predictions yet — be the first!
                   </div>
-                  <div className="bar">
-                    <i style={{ width: `${poolPercentages.away}%` }} />
-                  </div>
-                </div>
+                )}
 
                 <div className="sideHint dim">Larger pool → lower payout per winner</div>
 
@@ -406,8 +440,11 @@ function Match() {
                       <b>{userBetForThisMatch.score?.home ?? 0}-{userBetForThisMatch.score?.away ?? 0}</b>
                     </div>
                     <div className="sideRow">
-                      <span className="dim">Stake</span>
-                      <b>{formatToken(userBetForThisMatch.stake_in_match_pool ?? '0')} VARA</b>
+                      <span className="dim">Prediction Stake</span>
+                      <b>{Number(safeBigInt(userBetForThisMatch.stake_in_match_pool ?? '0')) / 1e12 < 0.1
+                        ? formatToken(userBetForThisMatch.stake_in_match_pool ?? '0')
+                        : (Number(safeBigInt(userBetForThisMatch.stake_in_match_pool ?? '0')) / 1e12).toFixed(1)
+                      } VARA</b>
                     </div>
                     <div className="sideRow">
                       <span className="dim">Status</span>
@@ -460,24 +497,38 @@ function Match() {
                 <div className="mcx__infoPanel">
                   <button className="mcx__infoClose" onClick={() => setShowMatchInfoModal(false)} type="button">✕</button>
                   <h3 className="mcx__infoTitle">How Rewards Work</h3>
-                  <p>SmartCup uses a <b>pari-mutuel pool system</b>, where players compete against each other — not against fixed odds.</p>
-                  <p><b>When you place a prediction:</b></p>
-                  <ul className="mcx__infoList">
-                    <li>85% → Match winner pool</li>
-                    <li>10% → Final Prize Pool</li>
-                    <li>5% → Protocol Fee</li>
-                  </ul>
-                  <p><b>After the match ends:</b></p>
-                  <ul className="mcx__infoList">
-                    <li>The match pool is shared among all correct predictions</li>
-                    <li>Your final reward depends on how many players predicted the same outcome</li>
-                  </ul>
-                  <p><b>Important:</b></p>
-                  <ul className="mcx__infoList">
-                    <li>Rewards are not fixed</li>
-                    <li>The estimated reward updates as more players join</li>
-                    <li>In crowded outcomes, rewards can be lower than your entry amount</li>
-                  </ul>
+
+                  <p className="mcx__infoIntro">
+                    SmartCup uses a <b>pari-mutuel pool system</b> — players compete against each other, not fixed odds.
+                  </p>
+
+                  <div className="mcx__infoSection">
+                    <p className="mcx__infoSectionTitle">When you place a prediction stake:</p>
+                    <ul className="mcx__infoList">
+                      <li><span className="mcx__infoBadge mcx__infoBadge--match">85%</span> goes to the Match Winner Pool</li>
+                      <li><span className="mcx__infoBadge mcx__infoBadge--final">10%</span> goes to the Final Prize Pool</li>
+                      <li><span className="mcx__infoBadge mcx__infoBadge--fee">5%</span> goes to the Protocol / DAO fee</li>
+                    </ul>
+                  </div>
+
+                  <div className="mcx__infoSection">
+                    <p className="mcx__infoSectionTitle">After the match ends:</p>
+                    <ul className="mcx__infoList">
+                      <li>The 85% match pool is split among all correct predictions</li>
+                      <li>Your reward depends on how many players predicted the same outcome</li>
+                      <li>Rare correct predictions pay more; popular outcomes pay less</li>
+                    </ul>
+                  </div>
+
+                  <div className="mcx__infoSection mcx__infoSection--warn">
+                    <p className="mcx__infoSectionTitle">Important:</p>
+                    <ul className="mcx__infoList">
+                      <li>Rewards are <b>not fixed</b> — they update as more players join</li>
+                      <li>In crowded outcomes, rewards can be lower than your prediction stake</li>
+                      <li>If no one predicts correctly, the pool rolls into the Final Prize Pool</li>
+                    </ul>
+                  </div>
+
                   <a href="/rules" target="_blank" rel="noopener noreferrer" className="mcx__infoLink">View full rules →</a>
                 </div>
               </div>
@@ -506,6 +557,8 @@ function Match() {
             <span>© 2026 SmartCup League</span>
             <span className="match-footer__sep">·</span>
             <Link to="/terms-of-use" className="match-footer__link">Terms of Use</Link>
+            <span className="match-footer__sep">·</span>
+            <Link to="/rules" className="match-footer__link">Rules</Link>
             <span className="match-footer__sep">·</span>
             <Link to="/dao-constitution" className="match-footer__link">DAO Constitution</Link>
           </footer>

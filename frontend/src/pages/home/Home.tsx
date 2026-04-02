@@ -14,7 +14,6 @@ import { StyledWallet } from '@/components/wallet/Wallet';
 import { useNavigate } from 'react-router-dom';
 import { useOnboarding } from '@/hooks/useOnboarding';
 import { OnboardingModal } from '@/components/onboarding/OnboardingModal';
-import { AppFooter } from '@/components/layout/footer/AppFooter';
 
 const CORE_PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as string;
 const DAO_PROGRAM_ID = import.meta.env.VITE_DAOPROGRAM as string;
@@ -755,7 +754,7 @@ export default function Home() {
             </div>
 
             <div className="h-card__foot">
-              <button className="h-btn h-btn--soft" type="button" onClick={() => navigate('/leaderboards')}>
+              <button className="h-btn h-btn--soft" type="button" onClick={() => navigate('/leaderboard')}>
                 View full Leaderboard →
               </button>
             </div>
@@ -837,9 +836,16 @@ export default function Home() {
             <h3>Final Prize Pool</h3>
           </div>
 
-          <div className="h-prize">
+          <div className="h-prize h-prize--with-trophy">
+            <img
+              className="h-prize__trophy"
+              src="/images/WorldCupTrophy_PNG.png"
+              alt="World Cup Trophy"
+              aria-hidden="true"
+            />
+
+            <div className="h-prize__content">
             <div className="h-prize__big">
-              <span className="h-prize__cup" aria-hidden="true">⚽</span>
               <div className="h-prize__value">{coreState ? poolsInfo.finalPrizeText : '—'}</div>
               <div className="h-prize__unit">{usdcLabel}</div>
             </div>
@@ -899,6 +905,7 @@ export default function Home() {
                     : 'Claim Prize'}
               </button>
             </div>
+            </div>{/* end h-prize__content */}
           </div>
         </section>
 
@@ -1056,12 +1063,6 @@ export default function Home() {
         </section>
       </main>
 
-      <AppFooter />
-
-      <div className="muted tiny" style={{ padding: '4px 0 10px', textAlign: 'center' }}>
-        {!CORE_PROGRAM_ID ? 'Missing env: VITE_BOLAOCOREPROGRAM' : null}
-        {!DAO_PROGRAM_ID ? (CORE_PROGRAM_ID ? 'Missing env: VITE_DAOPROGRAM' : ' • Missing env: VITE_DAOPROGRAM') : null}
-      </div>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { Sidebar } from '@/components/layout/sidebar';
 import { useAccount } from '@gear-js/react-hooks';
 import { useOnboarding } from '@/hooks/useOnboarding';
 import { OnboardingModal } from '@/components/onboarding/OnboardingModal';
+import { AppFooter } from '@/components/layout/footer/AppFooter';
 
 export function AppLayout() {
   const { account } = useAccount();
@@ -17,6 +18,7 @@ export function AppLayout() {
         <main className="app-main">
           <Outlet />
         </main>
+        <AppFooter />
       </div>
     </div>
   );

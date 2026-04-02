@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import styled, { keyframes } from 'styled-components';
 import { useAccount, useBalance } from '@gear-js/react-hooks';
 import { Wallet as GearWallet } from '@gear-js/wallet-connect';
+import { useVaraPrice } from '@/hooks/useVaraPrice';
 
 const shimmer = keyframes`
   0%   { transform: translateX(-140%) skewX(-18deg); opacity: 0; }
@@ -184,17 +185,18 @@ const InlineWrap = styled.div<{ $connected?: boolean }>`
   }
 `;
 
-/** ===== Balance (anti-overflow + dorado pro) ===== */
+/** ===== Balance pill — columna: label arriba, cantidad + usd abajo ===== */
 const BalancePill = styled.div`
   flex: 1 1 auto;
   min-width: 0;
   max-width: 100%;
 
   display: inline-flex;
-  align-items: baseline;
-  gap: 10px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
 
-  padding: 10px 12px;
+  padding: 9px 14px;
   border-radius: 14px;
 
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -207,32 +209,36 @@ const BalancePill = styled.div`
   box-shadow:
     0 14px 44px rgba(0,0,0,.32),
     0 0 0 1px rgba(255,255,255,.04) inset;
-
-  overflow: hidden;
 `;
 
 const BalanceLabel = styled.div`
-  flex: 0 0 auto;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 950;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.72);
+  color: rgba(255, 255, 255, 0.50);
   white-space: nowrap;
+  line-height: 1;
 `;
 
-const AmountGold = styled.div`
-  flex: 1 1 auto;
+/** Fila inferior: cantidad + símbolo + badge USD, todos centrados verticalmente */
+const BalanceRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 7px;
   min-width: 0;
-  max-width: clamp(140px, 22vw, 360px);
+`;
+
+const AmountGold = styled.span`
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 
-  font-size: clamp(16px, 2.2vw, 20px);
+  font-size: clamp(15px, 2.2vw, 19px);
   font-weight: 1000;
   letter-spacing: 0.2px;
-  line-height: 1.05;
+  line-height: 1;
 
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum' 1;
@@ -249,32 +255,41 @@ const AmountGold = styled.div`
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-
-  text-shadow:
-    0 0 18px rgba(245, 197, 66, 0.22),
-    0 0 26px rgba(214, 162, 30, 0.16),
-    0 1px 0 rgba(0, 0, 0, 0.55);
 `;
 
-const TokenPro = styled.div`
-  flex: 0 0 auto;
+const TokenSymbol = styled.span`
+  flex-shrink: 0;
   font-size: 11px;
   font-weight: 950;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.84);
+  color: rgba(255, 255, 255, 0.70);
   white-space: nowrap;
-  opacity: 0.9;
+  line-height: 1;
+`;
+
+const UsdValue = styled.span`
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  line-height: 1;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(52, 211, 153, 0.30);
+  background: rgba(52, 211, 153, 0.10);
+  color: rgba(110, 255, 190, 0.95);
+  text-shadow: 0 0 8px rgba(52, 211, 153, 0.30);
 `;
 
 const Status = styled.div<{ $connected?: boolean }>`
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
+  padding: 3px 6px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 950;
   white-space: nowrap;
 
@@ -299,11 +314,17 @@ export function StyledWallet({ showHeader = true, tokenSymbol = 'VARA', showStat
 
   const address = connected ? account!.decodedAddress : undefined;
   const { balance, isBalanceReady } = useBalance(address);
+  const { planckToUsd } = useVaraPrice();
 
   const amount = useMemo(() => {
     if (!connected || !isBalanceReady) return null;
     return formatPlak(balance?.toString(), 4, 'es-MX');
   }, [connected, isBalanceReady, balance]);
+
+  const usdLabel = useMemo(() => {
+    if (!connected || !isBalanceReady || !balance) return null;
+    return planckToUsd(balance.toString());
+  }, [connected, isBalanceReady, balance, planckToUsd]);
 
   return (
     <Row>
@@ -311,10 +332,12 @@ export function StyledWallet({ showHeader = true, tokenSymbol = 'VARA', showStat
         <Left>
           {connected ? (
             <BalancePill>
-              <BalanceLabel>Balance</BalanceLabel>
-              <AmountGold title={`${amount ?? '0'} ${tokenSymbol}`}>{amount ?? '0'}</AmountGold>
-              <TokenPro>{tokenSymbol}</TokenPro>
-              {showStatus ? <Status $connected={connected}>Connected</Status> : null}
+              <BalanceRow>
+                <AmountGold title={`${amount ?? '0'} ${tokenSymbol}`}>{amount ?? '0'}</AmountGold>
+                <TokenSymbol>{tokenSymbol}</TokenSymbol>
+                {usdLabel ? <UsdValue>{usdLabel}</UsdValue> : null}
+                {showStatus ? <Status $connected={connected}>●</Status> : null}
+              </BalanceRow>
             </BalancePill>
           ) : (
             <></>

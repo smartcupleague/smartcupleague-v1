@@ -11,15 +11,22 @@ import { useNavigate } from 'react-router-dom';
 
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as `0x${string}`;
 const MY_LB_KEY = 'scl_my_leaderboard_v1';
+const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8000';
+
+type ApiStatsRow = {
+  wallet_address: string;
+  matches_count: number;
+  exact_count: number;
+  total_claimed_planck: string;
+};
 
 type LbRow = {
   rank: number;
   wallet: string;
   totalPoints: number;
-  // TODO: matches, exact, outcome counts require per-user detailed data from contract
   matches: number;
   exact: number;
-  outcome: number;
+  outcomePlanck: string; // total claimed in planck — formatted as VARA for display
 };
 
 type EarningRow = { rank: number; wallet: string; points: number };
@@ -126,27 +133,51 @@ export default function Leaderboards() {
         if (wallet) pointsMap.set(String(wallet).toLowerCase(), Number(pts ?? 0));
       }
 
-      // Collect all participants from matches (users with predictions but possibly 0 points)
+      // Build match count per wallet from participants lists
+      const matchCountMap = new Map<string, number>();
       if (Array.isArray(state?.matches)) {
         for (const m of state.matches as any[]) {
           if (Array.isArray(m?.participants)) {
             for (const p of m.participants) {
               const hw = String(p ?? '').toLowerCase();
-              if (hw && !pointsMap.has(hw)) pointsMap.set(hw, 0);
+              if (hw) {
+                matchCountMap.set(hw, (matchCountMap.get(hw) ?? 0) + 1);
+                if (!pointsMap.has(hw)) pointsMap.set(hw, 0);
+              }
             }
           }
         }
       }
 
+      // Fetch per-wallet stats from API (matches, exact, total_claimed)
+      let statsMap = new Map<string, ApiStatsRow>();
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/leaderboard?limit=2000`);
+        if (res.ok) {
+          const data: { rows: ApiStatsRow[] } = await res.json();
+          for (const row of data.rows ?? []) {
+            statsMap.set(row.wallet_address.toLowerCase(), row);
+            // Ensure wallets that only have claims but no on-chain points appear
+            if (!pointsMap.has(row.wallet_address.toLowerCase())) {
+              pointsMap.set(row.wallet_address.toLowerCase(), 0);
+            }
+          }
+        }
+      } catch { /* API unavailable — fallback to contract-only data */ }
+
       const mapped: LbRow[] = Array.from(pointsMap.entries())
-        .map(([wallet, totalPoints]) => ({
-          rank: 0,
-          wallet,
-          totalPoints,
-          matches: 0,
-          exact: 0,
-          outcome: 0,
-        }))
+        .map(([wallet, totalPoints]) => {
+          const apiRow = statsMap.get(wallet);
+          return {
+            rank: 0,
+            wallet,
+            totalPoints,
+            // API data takes precedence; fall back to contract participant count
+            matches: apiRow?.matches_count ?? matchCountMap.get(wallet) ?? 0,
+            exact: apiRow?.exact_count ?? 0,
+            outcomePlanck: apiRow?.total_claimed_planck ?? '0',
+          };
+        })
         .filter((r) => !!r.wallet);
 
       mapped.sort((a, b) => {
@@ -208,9 +239,8 @@ export default function Leaderboards() {
 
   const myRank = myRow?.rank ?? null;
   const myPts = myRow?.totalPoints ?? 0;
-  // TODO: myExact and myOutcome from contract per-user data
-  const myExact = 0;
-  const myOutcome = 0;
+  const myExact = myRow?.exact ?? 0;
+  const myOutcomeVara = myRow ? (Number(myRow.outcomePlanck) / 1e12).toFixed(2) : '0';
 
   const myLbRows = useMemo(() => {
     if (!followedWallets.length) return [];
@@ -307,7 +337,7 @@ export default function Leaderboards() {
               <div>Wallet</div>
               <div className="lbTH--num">Matches</div>
               <div className="lbTH--num">Exact</div>
-              <div className="lbTH--num">Outcome</div>
+              <div className="lbTH--num">Won (VARA)</div>
               <div className="lbTH--num lbTH--points">Points</div>
             </div>
 
@@ -353,15 +383,25 @@ export default function Leaderboards() {
                         </button>
                       </div>
 
-                      {/* TODO: matches/exact/outcome from contract per-user data */}
                       <div className="lbNum lbNum--right">
-                        <span className="lbNum__main lbNum__muted">—</span>
+                        <span className={r.matches > 0 ? 'lbNum__main' : 'lbNum__main lbNum__muted'}>
+                          {r.matches > 0 ? r.matches : '—'}
+                        </span>
                       </div>
                       <div className="lbNum lbNum--right">
-                        <span className="lbNum__main lbNum__muted">—</span>
+                        <span className={r.exact > 0 ? 'lbNum__main' : 'lbNum__main lbNum__muted'}>
+                          {r.exact > 0 ? r.exact : '—'}
+                        </span>
                       </div>
                       <div className="lbNum lbNum--right">
-                        <span className="lbNum__main lbNum__muted">—</span>
+                        {(() => {
+                          const vara = Number(r.outcomePlanck) / 1e12;
+                          return (
+                            <span className={vara > 0 ? 'lbNum__main' : 'lbNum__main lbNum__muted'} title={`${r.outcomePlanck} planck`}>
+                              {vara > 0 ? vara.toFixed(2) : '—'}
+                            </span>
+                          );
+                        })()}
                       </div>
 
                       <div className="lbNum lbNum--right lbNum--points">
@@ -447,10 +487,12 @@ export default function Leaderboards() {
             <span className="dot">•</span>
             <span className="lbBottom__pts">{myPts}</span>
             <span className="lbBottom__ptsLabel muted tiny"> points</span>
-            {myExact > 0 || myOutcome > 0 ? (
+            {(myExact > 0 || Number(myOutcomeVara) > 0) ? (
               <>
                 <span className="dot">•</span>
-                <span className="lbBottom__detail muted tiny">{myExact} exact · {myOutcome} outcomes</span>
+                <span className="lbBottom__detail muted tiny">
+                  {myExact > 0 ? `${myExact} exact · ` : ''}{Number(myOutcomeVara) > 0 ? `${myOutcomeVara} VARA` : ''}
+                </span>
               </>
             ) : null}
           </div>

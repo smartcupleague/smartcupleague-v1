@@ -750,7 +750,7 @@ export const QueryBetsByUserComponent: React.FC = () => {
 
                         <div className="mpNum">
                           <div className="mpNum__main">
-                            {Number.isFinite(stakeHuman) ? stakeHuman.toFixed(4) : '0.0000'}
+                            {Number.isFinite(stakeHuman) ? stakeHuman.toFixed(1) : '0.0'}
                           </div>
                           <div className="mpNum__sub">VARA</div>
                         </div>

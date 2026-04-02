@@ -9,6 +9,8 @@ import { useToast } from '@/hooks/useToast';
 import { HexString } from '@gear-js/api';
 import { TEAM_FLAGS } from '@/utils/teams';
 import { StyledWallet } from '@/components/wallet/Wallet';
+import { useVaraPrice } from '@/hooks/useVaraPrice';
+import { reportClaim } from '@/utils/statsReporter';
 
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as string;
 
@@ -139,7 +141,7 @@ function getPhases(matches: MatchInfo[]): string[] {
   return Array.from(set).sort();
 }
 
-type SortField = 'match_id' | 'date' | 'az' | 'za';
+type SortField = 'match_id_asc' | 'match_id_desc' | 'date_asc' | 'date_desc';
 type StatusFilter = '' | 'predicted' | 'not_predicted';
 
 export const MatchesTableComponent: React.FC = () => {
@@ -157,10 +159,11 @@ export const MatchesTableComponent: React.FC = () => {
   // Filters
   const [filterStage, setFilterStage] = useState('');
   const [filterDate, setFilterDate] = useState('');
-  const [sortField, setSortField] = useState<SortField>('match_id');
+  const [sortField, setSortField] = useState<SortField>('match_id_asc');
 
   const [filterStatus, setFilterStatus] = useState<StatusFilter>('');
   const [claimLoadingId, setClaimLoadingId] = useState<string | null>(null);
+  const { planckToUsd } = useVaraPrice();
   const [userBetMatchIds, setUserBetMatchIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -183,12 +186,13 @@ export const MatchesTableComponent: React.FC = () => {
         away: String(m?.away ?? ''),
         kick_off: String(m?.kick_off ?? '0'),
         result: m?.result ?? null,
-        match_prize_pool: String(m?.match_prize_pool ?? '0'),
+        // Prefer match_prize_pool, fall back to total_pool field
+        match_prize_pool: String(m?.match_prize_pool ?? m?.total_pool ?? '0'),
         has_bets: Boolean(m?.has_bets),
 
         total_winner_stake: m?.total_winner_stake != null ? String(m.total_winner_stake) : undefined,
         total_claimed: m?.total_claimed != null ? String(m.total_claimed) : undefined,
-        settlement_prepared: m?.settlement_prepared != null ? Boolean(m.settlement_prepared) : undefined,
+        settlement_prepared: m?.settlement_prepared != null ? Boolean(m.settlement_prepared) : false,
         dust_swept: m?.dust_swept != null ? Boolean(m.dust_swept) : undefined,
       }));
 
@@ -256,14 +260,19 @@ export const MatchesTableComponent: React.FC = () => {
     }
 
     // Sort
-    if (sortField === 'date') {
+    if (sortField === 'date_asc') {
       list = [...list].sort((a, b) => Number(a.kick_off) - Number(b.kick_off));
-    } else if (sortField === 'az') {
-      list = [...list].sort((a, b) => (`${a.home} ${a.away}`).localeCompare(`${b.home} ${b.away}`));
-    } else if (sortField === 'za') {
-      list = [...list].sort((a, b) => (`${b.home} ${b.away}`).localeCompare(`${a.home} ${a.away}`));
+    } else if (sortField === 'date_desc') {
+      list = [...list].sort((a, b) => Number(b.kick_off) - Number(a.kick_off));
+    } else if (sortField === 'match_id_desc') {
+      list = [...list].sort((a, b) => {
+        const ai = Number(a.match_id);
+        const bi = Number(b.match_id);
+        if (Number.isFinite(ai) && Number.isFinite(bi)) return bi - ai;
+        return b.match_id.localeCompare(a.match_id);
+      });
     } else {
-      // Default: match #
+      // Default: match # ascending (first → last)
       list = [...list].sort((a, b) => {
         const ai = Number(a.match_id);
         const bi = Number(b.match_id);
@@ -290,16 +299,31 @@ export const MatchesTableComponent: React.FC = () => {
         setClaimLoadingId(matchId);
         const svc = new Service(new Program(api, PROGRAM_ID as HexString));
 
-        const tx: TransactionBuilder<unknown> = (svc as any).claimPrize(BigInt(matchId));
+        const tx: TransactionBuilder<unknown> = (svc as any).claimMatchReward(BigInt(matchId));
 
         const { signer } = await web3FromSource(account.meta.source);
         tx.withAccount(account.decodedAddress, { signer }).withValue(0n);
+
+        // Snapshot balance before claim to compute the earned amount
+        let balanceBefore = 0n;
+        try {
+          const raw = await (api as any).balance.findOut(account.decodedAddress);
+          balanceBefore = BigInt(raw.toString());
+        } catch { /* non-fatal */ }
 
         await tx.calculateGas();
         const { blockHash, response } = await tx.signAndSend();
         toast.info(`Claim included in block ${blockHash}`);
         await response();
         toast.success('Reward claimed ✅');
+
+        // Compute earned amount from balance delta and report to stats backend
+        try {
+          const raw = await (api as any).balance.findOut(account.decodedAddress);
+          const balanceAfter = BigInt(raw.toString());
+          const diff = balanceAfter - balanceBefore;
+          reportClaim(account.decodedAddress, matchId, diff > 0n ? diff.toString() : '0');
+        } catch { /* non-fatal */ }
 
         setTimeout(fetchMatches, 900);
       } catch (e) {
@@ -363,10 +387,10 @@ export const MatchesTableComponent: React.FC = () => {
               value={sortField}
               onChange={(e) => setSortField(e.target.value as SortField)}
               aria-label="Sort by">
-              <option value="match_id">Sort: Match #</option>
-              <option value="date">Sort: Date</option>
-              <option value="az">Sort: A → Z</option>
-              <option value="za">Sort: Z → A</option>
+              <option value="match_id_asc">Match #: First → Last</option>
+              <option value="match_id_desc">Match #: Last → First</option>
+              <option value="date_asc">Date: Oldest First</option>
+              <option value="date_desc">Date: Newest First</option>
             </select>
 
             {/* Status filter */}
@@ -469,23 +493,21 @@ export const MatchesTableComponent: React.FC = () => {
                       <span className={'mxStatus mxStatus--' + r.label.toLowerCase()}>
                         {r.label === 'OPEN' ? 'OPEN' : r.label === 'LIVE' ? 'LIVE' : 'FINAL'}
                       </span>
-
-                      {hasPrediction && (
-                        <span className="mxStatus mxStatus--predicted">✓ Prediction made</span>
-                      )}
                     </div>
 
                     <div className="mxCard__topRight">
                       {r.label !== 'FINAL' ? <span className="mxPill">{closesLabel(m.kick_off)}</span> : null}
 
-                      {r.label === 'FINAL' ? (
-                        <button
-                          className="mxBtn mxBtn--claim"
-                          onClick={() => handleClaim(m.match_id)}
-                          disabled={claimLoadingId === m.match_id}
-                          type="button">
-                          {claimLoadingId === m.match_id ? 'Claiming…' : 'Claim'}
-                        </button>
+                      {/* Prediction Made badge on the right */}
+                      {hasPrediction && (
+                        <span className="mxStatus mxStatus--predicted">✓ Predicted</span>
+                      )}
+
+                      {/* Claim badge — non-interactive, goes to match page for actual claim */}
+                      {r.label === 'FINAL' && hasPrediction && m.settlement_prepared ? (
+                        <span className="mxBtn mxBtn--claim mxBtn--static">
+                          Reward Ready
+                        </span>
                       ) : hasPrediction ? (
                         <button
                           className="mxBtn mxBtn--soft"
@@ -493,14 +515,14 @@ export const MatchesTableComponent: React.FC = () => {
                           type="button">
                           Details
                         </button>
-                      ) : (
+                      ) : r.label !== 'FINAL' ? (
                         <button
                           className="mxBtn mxBtn--primary"
                           onClick={() => navigate(`/2026worldcup/match/${m.match_id}`)}
                           type="button">
                           Predict
                         </button>
-                      )}
+                      ) : null}
                     </div>
 
                     <div className="mxStatusLine">{statusText}</div>
@@ -530,16 +552,12 @@ export const MatchesTableComponent: React.FC = () => {
                     <div className="mxPools">
                       <div className="mxPool">
                         <div className="mxPool__k">Match Prize Pool</div>
-                        <div className="mxPool__v">{totalPoolHuman} VARA</div>
-                      </div>
-
-                      <div className="mxActions">
-                        <button
-                          className="mxBtn mxBtn--soft"
-                          onClick={() => navigate(`/2026worldcup/match/${m.match_id}`)}
-                          type="button">
-                          Details
-                        </button>
+                        <div className="mxPool__v">
+                          {totalPoolHuman !== '—' ? `${totalPoolHuman} VARA` : (m.has_bets ? 'Pool active' : '—')}
+                        </div>
+                        {totalPoolHuman !== '—' && (
+                          <div className="mxPool__usd">{planckToUsd(m.match_prize_pool)}</div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -552,14 +570,6 @@ export const MatchesTableComponent: React.FC = () => {
         )}
       </div>
 
-      {/* View all matches CTA at bottom */}
-      {!loading && filteredMatches.length > 0 && (
-        <div style={{ textAlign: 'center', padding: '16px 0' }}>
-          <button className="mxBtn mxBtn--ghost" type="button" onClick={fetchMatches}>
-            Refresh
-          </button>
-        </div>
-      )}
     </div>
   );
 };

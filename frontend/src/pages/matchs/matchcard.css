@@ -869,6 +869,52 @@
 }
 .mcx__infoLink:hover { text-decoration: underline; }
 
+/* ── How Rewards Works — improved readability ─────────────── */
+.mcx__infoIntro {
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0 0 12px;
+  color: rgba(255,255,255,0.85);
+}
+.mcx__infoSection {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.07);
+}
+.mcx__infoSection--warn {
+  background: rgba(255,180,0,0.06);
+  border-color: rgba(255,180,0,0.18);
+}
+.mcx__infoSectionTitle {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(255,255,255,0.5);
+  margin: 0 0 6px;
+}
+.mcx__infoBadge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  margin-right: 4px;
+}
+.mcx__infoBadge--match  { background: rgba(255,111,170,0.2); color: #ff8fb8; }
+.mcx__infoBadge--final  { background: rgba(90,150,255,0.2);  color: #90c0ff; }
+.mcx__infoBadge--fee    { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.6); }
+
+/* ── Stake USD hint ─────────────────────────────────────── */
+.mcx__stakeUsd {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.45);
+  margin: 4px 0 2px;
+  letter-spacing: 0.02em;
+}
+
 /* ── Post-prediction success CTA ────────────────────────── */
 .mcx__betSucceeded {
   display: flex;
