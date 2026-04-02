@@ -249,7 +249,8 @@ export const QueryBetsByUserComponent: React.FC = () => {
   const [search, setSearch] = useState('');
   const [filterStage, setFilterStage] = useState('');
   const [filterDate, setFilterDate] = useState('');
-  const [sortField, setSortField] = useState<'match_id' | 'date'>('match_id');
+  const [sortField, setSortField] = useState<'match_id' | 'date' | 'az' | 'za'>('match_id');
+  const [filterStatus, setFilterStatus] = useState<'' | 'claimed' | 'pending' | 'eligible' | 'not_eligible'>('');
   const [claimingByMatch, setClaimingByMatch] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
@@ -391,6 +392,31 @@ export const QueryBetsByUserComponent: React.FC = () => {
       });
     }
 
+    // Status filter
+    if (filterStatus === 'claimed') {
+      list = list.filter((b) => b.claimed);
+    } else if (filterStatus === 'pending') {
+      list = list.filter((b) => !b.claimed);
+    } else if (filterStatus === 'eligible') {
+      list = list.filter((b) => {
+        const m = matchById.get(Number(b.match_id));
+        if (!m || !isMatchFinal(m.result)) return false;
+        const betPenalty = parsePenaltyWinner(b.penalty_winner);
+        const { score: finalScore, penaltyWinner: finalPenalty } = getFinalizedResult(m.result);
+        const phaseWeight = getPhaseWeight(m.phase, phases);
+        return eligibleForPayout(b.score, betPenalty, finalScore, finalPenalty, phaseWeight);
+      });
+    } else if (filterStatus === 'not_eligible') {
+      list = list.filter((b) => {
+        const m = matchById.get(Number(b.match_id));
+        if (!m || !isMatchFinal(m.result)) return true;
+        const betPenalty = parsePenaltyWinner(b.penalty_winner);
+        const { score: finalScore, penaltyWinner: finalPenalty } = getFinalizedResult(m.result);
+        const phaseWeight = getPhaseWeight(m.phase, phases);
+        return !eligibleForPayout(b.score, betPenalty, finalScore, finalPenalty, phaseWeight);
+      });
+    }
+
     // Sort
     if (sortField === 'date') {
       list = [...list].sort((a, b) => {
@@ -398,13 +424,25 @@ export const QueryBetsByUserComponent: React.FC = () => {
         const mb = matchById.get(Number(b.match_id));
         return Number(ma?.kick_off ?? 0) - Number(mb?.kick_off ?? 0);
       });
+    } else if (sortField === 'az') {
+      list = [...list].sort((a, b) => {
+        const ma = matchById.get(Number(a.match_id));
+        const mb = matchById.get(Number(b.match_id));
+        return (`${ma?.home ?? ''} ${ma?.away ?? ''}`).localeCompare(`${mb?.home ?? ''} ${mb?.away ?? ''}`);
+      });
+    } else if (sortField === 'za') {
+      list = [...list].sort((a, b) => {
+        const ma = matchById.get(Number(a.match_id));
+        const mb = matchById.get(Number(b.match_id));
+        return (`${mb?.home ?? ''} ${mb?.away ?? ''}`).localeCompare(`${ma?.home ?? ''} ${ma?.away ?? ''}`);
+      });
     } else {
       // Default: match #
       list = [...list].sort((a, b) => Number(a.match_id) - Number(b.match_id));
     }
 
     return list;
-  }, [bets, search, matchById, filterStage, filterDate, sortField]);
+  }, [bets, search, matchById, filterStage, filterDate, sortField, filterStatus, phases]);
 
   const claim = useCallback(
     async (matchId: number) => {
@@ -483,7 +521,7 @@ export const QueryBetsByUserComponent: React.FC = () => {
 
         <div className="mpHintbar">
           <span className="mpPill">Prediction closes 10m before kickoff</span>
-          <span className="mpPill">75% Match / 20% Final / 5% DAO</span>
+          <span className="mpPill">85% Match / 10% Final / 5% DAO</span>
           <span className="mpPill">On-chain pools</span>
           <span className="mpPill mpPill--live">LIVE</span>
 
@@ -491,10 +529,24 @@ export const QueryBetsByUserComponent: React.FC = () => {
           <select
             className="mpFilterSelect"
             value={sortField}
-            onChange={(e) => setSortField(e.target.value as 'match_id' | 'date')}
+            onChange={(e) => setSortField(e.target.value as 'match_id' | 'date' | 'az' | 'za')}
             aria-label="Sort predictions">
             <option value="match_id">Sort: Match #</option>
             <option value="date">Sort: Date</option>
+            <option value="az">Sort: A → Z</option>
+            <option value="za">Sort: Z → A</option>
+          </select>
+
+          <select
+            className="mpFilterSelect"
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value as '' | 'claimed' | 'pending' | 'eligible' | 'not_eligible')}
+            aria-label="Filter by status">
+            <option value="">All Statuses</option>
+            <option value="claimed">Claimed</option>
+            <option value="pending">Pending</option>
+            <option value="eligible">Eligible</option>
+            <option value="not_eligible">Not Eligible</option>
           </select>
 
           <select
@@ -517,12 +569,12 @@ export const QueryBetsByUserComponent: React.FC = () => {
             title="Filter by date"
           />
 
-          {(filterStage || filterDate) && (
+          {(filterStage || filterDate || filterStatus) && (
             <button
               className="mpIconBtn"
               type="button"
               title="Clear filters"
-              onClick={() => { setFilterStage(''); setFilterDate(''); }}>
+              onClick={() => { setFilterStage(''); setFilterDate(''); setFilterStatus(''); }}>
               ✕
             </button>
           )}
@@ -672,8 +724,8 @@ export const QueryBetsByUserComponent: React.FC = () => {
                               <span className="mpChip">{phase}</span>
                               <span className="mpChip">Kickoff: {kickoff}</span>
                               <span className="mpChip">Pool: {poolHuman}</span>
-                              <span className="mpChip">
-                                Current: <b>{current.home}-{current.away}</b>
+                              <span className={'mpChip ' + (current.tag !== 'OPEN' ? 'mpChip--result' : '')}>
+                                Result: <b>{current.tag !== 'OPEN' ? `${current.home}-${current.away}` : 'TBD'}</b>
                               </span>
 
                               {betPenalty ? <span className="mpChip">Penalty pick: {betPenalty}</span> : null}
@@ -698,7 +750,7 @@ export const QueryBetsByUserComponent: React.FC = () => {
 
                         <div className="mpNum">
                           <div className="mpNum__main">
-                            {Number.isFinite(stakeHuman) ? stakeHuman.toFixed(4) : '0.0000'}
+                            {Number.isFinite(stakeHuman) ? stakeHuman.toFixed(1) : '0.0'}
                           </div>
                           <div className="mpNum__sub">VARA</div>
                         </div>

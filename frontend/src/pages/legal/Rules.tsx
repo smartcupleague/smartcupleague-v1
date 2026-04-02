@@ -50,11 +50,11 @@ export default function Rules() {
           <h2>How the Match Pool Is Distributed</h2>
           <p>For every prediction placed:</p>
           <ul>
-            <li><strong>75%</strong> goes to the Match Winner Pool</li>
-            <li><strong>20%</strong> goes to the Season-Long Final Prize Pool</li>
+            <li><strong>85%</strong> goes to the Match Winner Pool</li>
+            <li><strong>10%</strong> goes to the Season-Long Final Prize Pool</li>
             <li><strong>5%</strong> goes to the DAO treasury as a protocol fee</li>
           </ul>
-          <p>Only the 75% match pool is distributed among winners of that specific match.</p>
+          <p>Only the 85% match pool is distributed among winners of that specific match.</p>
         </section>
 
         <section className="legal-section">
@@ -71,10 +71,10 @@ export default function Rules() {
 
         <section className="legal-section">
           <h2>Example</h2>
-          <p>100 players enter a match — Total entries: 300 VARA — Match pool (75%): 225 VARA</p>
+          <p>100 players enter a match — Total entries: 300 VARA — Match pool (85%): 255 VARA</p>
           <ul>
-            <li><strong>Scenario A — 10 winners:</strong> Each winner receives 22.5 VARA</li>
-            <li><strong>Scenario B — 150 winners:</strong> Each winner receives 1.5 VARA</li>
+            <li><strong>Scenario A — 10 winners:</strong> Each winner receives 25.5 VARA</li>
+            <li><strong>Scenario B — 150 winners:</strong> Each winner receives 1.7 VARA</li>
           </ul>
           <p>Both predictions are correct — the difference is how many players share the pool.</p>
         </section>
@@ -118,7 +118,7 @@ export default function Rules() {
           </ul>
           <p>Key rules:</p>
           <ul>
-            <li>Winners share 75% of the pool</li>
+            <li>Winners share 85% of the pool</li>
             <li>Rewards are distributed proportionally</li>
             <li>If no one wins, the match pool is added to the Final Prize Pool</li>
           </ul>
@@ -154,7 +154,7 @@ export default function Rules() {
           <h2>5. Final Prize Pool</h2>
           <p>The Final Prize Pool is funded by:</p>
           <ul>
-            <li>20% of every match entry</li>
+            <li>10% of every match entry</li>
             <li>Unclaimed or unused match pool balances</li>
           </ul>
           <p>After the tournament ends, the leaderboard is finalized, smart contracts calculate the prize allocation, and top players claim rewards on-chain.</p>

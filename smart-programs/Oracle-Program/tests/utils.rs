@@ -1,0 +1,1 @@
+pub const ONE_TVARA: u128 = 1_000_000_000_000;

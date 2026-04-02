@@ -34,6 +34,9 @@ function Routing() {
         <Route path="/all-matches" element={<MatchesTableComponent />} />
         {/* Keep /all-predictions as alias for backwards compat */}
         <Route path="/all-predictions" element={<MatchesTableComponent />} />
+        {/* Primary route — singular */}
+        <Route path="/leaderboard" element={<Leaderboards />} />
+        {/* Backwards-compat alias */}
         <Route path="/leaderboards" element={<Leaderboards />} />
         <Route path="/dao" element={<GovernancePanel />} />
         <Route path="/simulator" element={<Simulator />} />

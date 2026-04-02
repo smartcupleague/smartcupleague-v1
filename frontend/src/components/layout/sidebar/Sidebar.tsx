@@ -2,7 +2,7 @@ import React from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import './scb-dashboard.css';
 
-type SectionKey = 'progress' | 'my-predictions' | 'leaderboards' | 'all-matches' | 'dao' | 'settings';
+type SectionKey = 'progress' | 'my-predictions' | 'leaderboard' | 'all-matches' | 'dao';
 
 interface NavItem {
   key: SectionKey;
@@ -13,16 +13,10 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   {
-    key: 'progress',
-    label: 'My Progress',
-    path: '/progress',
-    icon: <span className="scb-icon">🏆</span>,
-  },
-  {
-    key: 'leaderboards',
-    label: 'Leaderboards',
-    path: '/leaderboards',
-    icon: <span className="scb-icon">🏅</span>,
+    key: 'all-matches',
+    label: 'All Matches',
+    path: '/all-matches',
+    icon: <span className="scb-icon">⚽</span>,
   },
   {
     key: 'my-predictions',
@@ -31,10 +25,16 @@ const navItems: NavItem[] = [
     icon: <span className="scb-icon">🎯</span>,
   },
   {
-    key: 'all-matches',
-    label: 'All Matches',
-    path: '/all-matches',
-    icon: <span className="scb-icon">⚽</span>,
+    key: 'leaderboard',
+    label: 'Leaderboard',
+    path: '/leaderboard',
+    icon: <span className="scb-icon">🏅</span>,
+  },
+  {
+    key: 'progress',
+    label: 'My Progress',
+    path: '/progress',
+    icon: <span className="scb-icon">🏆</span>,
   },
   {
     key: 'dao',
@@ -55,6 +55,9 @@ export const Sidebar: React.FC = () => {
     }
     if (item.key === 'all-matches') {
       return pathname.startsWith('/all-matches') || pathname.startsWith('/all-predictions');
+    }
+    if (item.key === 'leaderboard') {
+      return pathname.startsWith('/leaderboard');
     }
     return pathname.startsWith(item.path);
   }
@@ -82,18 +85,6 @@ export const Sidebar: React.FC = () => {
           </NavLink>
         ))}
       </nav>
-
-      {/* Bottom — Settings only (dark mode removed per spec) */}
-      <div className="scb-sidebar__bottom">
-        <NavLink
-          to="/settings"
-          className={({ isActive }) =>
-            'scb-sidebar__item scb-sidebar__item--ghost ' + (isActive ? 'scb-sidebar__item--active' : '')
-          }>
-          <span className="scb-icon">⚙️</span>
-          <span className="scb-sidebar__label">Settings</span>
-        </NavLink>
-      </div>
     </aside>
   );
 };

@@ -790,8 +790,9 @@
 
 .mxPool {
   display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   padding: 4px 10px;
   border-radius: 999px;
   border: 1px solid rgba(255,255,255,0.09);
@@ -814,6 +815,11 @@
   color: rgba(255,255,255,0.88);
   font-weight: 900;
   font-size: 12px;
+}
+
+.mxPool__usd {
+  color: rgba(255,255,255,0.38);
+  font-size: 10px;
 }
 
 /* ─── Actions ────────────────────────────────────────────────────── */
@@ -901,13 +907,20 @@
   font-weight: 900;
 }
 
-.mxBtn--claim:hover {
+.mxBtn--claim:not(.mxBtn--static):hover {
   border-color: rgba(65,214,114,0.55);
   background: rgba(65,214,114,0.22);
   box-shadow:
     0 14px 36px rgba(65,214,114,0.22),
     0 0 24px rgba(65,214,114,0.18);
   text-shadow: 0 0 12px rgba(65,214,114,0.50);
+}
+
+.mxBtn--static {
+  cursor: default;
+  pointer-events: none;
+  user-select: none;
+  opacity: 0.85;
 }
 
 /* ─── Spinner ────────────────────────────────────────────────────── */
@@ -1019,4 +1032,19 @@
   }
   .mxFilters__right { flex-wrap: wrap; }
   .mxWalletWrap     { display: none; }
+}
+
+/* ── Prediction made tag ──────────────────────────────── */
+.mxStatus--predicted {
+  background: rgba(50, 200, 100, 0.18);
+  color: #7fffae;
+  border: 1px solid rgba(50, 200, 100, 0.35);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-weight: 700;
+  margin-left: 4px;
+}
+.mxCard--predicted {
+  border-left: 3px solid rgba(50, 200, 100, 0.50);
 }

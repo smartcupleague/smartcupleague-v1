@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useVaraPrice } from '@/hooks/useVaraPrice';
 import { useAccount, useApi } from '@gear-js/react-hooks';
 import { web3Enable, web3FromSource } from '@polkadot/extension-dapp';
 import { Program, Service } from '@/hocs/lib';
@@ -8,6 +9,7 @@ import { useToast } from '@/hooks/useToast';
 import './matchcard.css';
 import { HexString } from '@gear-js/api';
 import { TEAM_FLAGS } from '@/utils/teams';
+import { reportBet } from '@/utils/statsReporter';
 
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as string;
 
@@ -43,12 +45,20 @@ type IoBolaoState = {
   phases: PhaseInfo[];
 };
 
+export type BreakdownData = {
+  show: boolean;
+  matchPool: bigint;
+  finalPrize: bigint;
+  protocolFee: bigint;
+};
+
 export interface MatchCardProps {
   id: string;
   flag1?: string;
   flag2?: string;
   currentScore?: { home: number; away: number };
   currentScoreText?: string;
+  onBreakdownChange?: (data: BreakdownData) => void;
 }
 
 type BetCurrency = 'VARA' | 'wUSDC' | 'wUSDT';
@@ -57,7 +67,7 @@ const VARA_DECIMALS = 12n;
 const VARA_PLANCK = 10n ** VARA_DECIMALS;
 
 const PROTOCOL_FEE_BPS = 500n;
-const FINAL_PRIZE_BPS = 2000n;
+const FINAL_PRIZE_BPS = 1000n;
 const BPS_DEN = 10_000n;
 const MIN_BET_VARA = 3;
 
@@ -320,11 +330,13 @@ export const MatchCard: React.FC<MatchCardProps> = ({
   flag2,
   currentScore,
   currentScoreText,
+  onBreakdownChange,
 }) => {
   const navigate = useNavigate();
   const { account } = useAccount();
   const toast = useToast();
   const { api, isApiReady } = useApi();
+  const { varaToUsd } = useVaraPrice();
 
   const [state, setState] = useState<IoBolaoState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -346,6 +358,8 @@ export const MatchCard: React.FC<MatchCardProps> = ({
 
   const [betAmount, setBetAmount] = useState<string>('10');
   const [betCurrency, setBetCurrency] = useState<BetCurrency>('VARA');
+  const [betSucceeded, setBetSucceeded] = useState(false);
+  const [showInfoModal, setShowInfoModal] = useState(false);
 
   const [userStakeBn, setUserStakeBn] = useState<bigint>(0n);
   const [userClaimed, setUserClaimed] = useState<boolean>(false);
@@ -649,6 +663,15 @@ export const MatchCard: React.FC<MatchCardProps> = ({
     [betCurrency, betValueBn],
   );
 
+  useEffect(() => {
+    onBreakdownChange?.({
+      show: showToWin,
+      matchPool: stakeInMatchPoolBn,
+      finalPrize: feeFinalBn,
+      protocolFee: feeProtocolBn,
+    });
+  }, [onBreakdownChange, showToWin, stakeInMatchPoolBn, feeFinalBn, feeProtocolBn]);
+
   const handlePlaceBet = useCallback(async () => {
     if (!match) return;
 
@@ -726,6 +749,11 @@ export const MatchCard: React.FC<MatchCardProps> = ({
       toast.info(`Prediction included in block ${blockHash}`);
       await response();
       toast.success('Prediction placed successfully ✅');
+      setBetSucceeded(true);
+
+      // Report bet to stats backend (fire-and-forget, non-fatal)
+      const outcome = h > a ? 'home' : h < a ? 'away' : 'draw';
+      reportBet(account.decodedAddress, String(match.match_id), toPlanck(betAmountNumber).toString(), outcome);
 
       setTimeout(() => {
         void fetchState();
@@ -946,9 +974,9 @@ export const MatchCard: React.FC<MatchCardProps> = ({
       <div className="mcx__header">
         <div className="mcx__phase">
           {match.phase || 'Group Stage'}
-          <span style={{ marginLeft: 8, opacity: 0.75, fontSize: 12 }}>
+          
             (weight: {pointsWeight})
-          </span>
+         
         </div>
       </div>
 
@@ -1177,7 +1205,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({
 
             <div className="mcx__formGrid" style={{ marginTop: 12 }}>
               <div className="mcx__formCol">
-                <div className="mcx__label dim">Bet amount</div>
+                <div className="mcx__label dim">Prediction Stake</div>
                 <div className="mcx__amountWrap">
                   <span className="mcx__amountPill">VARA</span>
                   <input
@@ -1188,6 +1216,10 @@ export const MatchCard: React.FC<MatchCardProps> = ({
                     placeholder="0.00"
                   />
                 </div>
+
+                {betAmountNumber > 0 && varaToUsd(betAmountNumber) && (
+                  <div className="mcx__stakeUsd">{varaToUsd(betAmountNumber)}</div>
+                )}
 
                 <div className="mcx__quickRow">
                   <button
@@ -1234,78 +1266,101 @@ export const MatchCard: React.FC<MatchCardProps> = ({
               <b>{statusLabel(match.result)}</b>
             </div>
 
-            <button
-              className="mcx__betBtn mcx__betBtn--wine"
-              onClick={handlePlaceBet}
-              disabled={txLoadingBet || !canBet}
-            >
-              {txLoadingBet
-                ? 'Sending Prediction…'
-                : `Send Prediction (${betAmountNumber || 0} ${betCurrency})`}
-            </button>
-
-            {prizeEstimate !== null && (
-              <div className="mcx__prizeEst">
-                <div className="mcx__prizeEst__title">
-                  Win{' '}
-                  <span className="mcx__prizeEst__value">
-                    {formatVaraFromPlanck(prizeEstimate)} VARA
-                  </span>
-                </div>
-                <div className="mcx__prizeEst__note dim">Based on current pool distribution</div>
+            {betSucceeded ? (
+              <div className="mcx__betSucceeded">
+                <div className="mcx__betSucceeded__msg">Prediction placed successfully ✅</div>
+                <button
+                  className="mcx__betBtn mcx__betBtn--wine"
+                  onClick={() => navigate('/all-matches')}
+                  type="button"
+                >
+                  ← Go Back to All Matches
+                </button>
               </div>
-            )}
+            ) : (
+              <>
+                <button
+                  className="mcx__betBtn mcx__betBtn--wine"
+                  onClick={handlePlaceBet}
+                  disabled={txLoadingBet || !canBet}
+                >
+                  {txLoadingBet
+                    ? 'Sending Prediction…'
+                    : `Send Prediction (${betAmountNumber || 0} ${betCurrency})`}
+                </button>
 
-            {betAmountNumber > 0 && betAmountNumber < MIN_BET_VARA && (
-              <div className="mcx__warn" role="alert">
-                Minimum prediction amount is {MIN_BET_VARA} VARA
-              </div>
-            )}
-
-            <div className={'mcx__toWin ' + (showToWin ? 'is-on' : 'is-off')}>
-              <div className="mcx__toWinLeft">
-                <div className="mcx__toWinTitle">
-                  Potential profit <span className="mcx__chip">VARA</span>
-                </div>
-
-                {showToWin ? (
-                  <div className="mcx__breakdown">
-                    <div className="mcx__bdRow">
-                      <span className="dim">Your stake into match pool (75%)</span>
-                      <b>{formatVaraFromPlanck(stakeInMatchPoolBn)} VARA</b>
+                {prizeEstimate !== null && (
+                  <div className="mcx__prizeEst">
+                    <div className="mcx__prizeEst__title">
+                      Win{' '}
+                      <span className="mcx__prizeEst__value">
+                        {formatVaraFromPlanck(prizeEstimate)} VARA
+                      </span>{' '}
+                      based on current pool distribution
+                      <button
+                        className="mcx__infoBtn"
+                        type="button"
+                        onClick={() => setShowInfoModal(true)}
+                        aria-label="How rewards are calculated"
+                        title="How rewards are calculated"
+                      >
+                        ⓘ
+                      </button>
                     </div>
-                    <div className="mcx__bdRow">
-                      <span className="dim">Protocol fee (5%)</span>
-                      <b>{formatVaraFromPlanck(feeProtocolBn)} VARA</b>
-                    </div>
-                    <div className="mcx__bdRow">
-                      <span className="dim">Final prize (20%)</span>
-                      <b>{formatVaraFromPlanck(feeFinalBn)} VARA</b>
-                    </div>
-                    <div className="mcx__bdRow">
-                      <span className="dim">Pool after your prediction</span>
-                      <b>{formatVaraFromPlanck(poolAfterBn)} VARA</b>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mcx__breakdown dim">
-                    Enter an amount to preview potential winnings.
+                    <div className="mcx__prizeEst__note dim">Estimate — updates as more players join</div>
                   </div>
                 )}
-              </div>
 
-              <div className="mcx__toWinRight">
-                <div className="mcx__toWinValue">
-                  {showToWin ? formatVaraFromPlanck(maxProfitBn) : '—'}
-                </div>
-                <div className="mcx__toWinUnit">VARA</div>
-                <div className="mcx__toWinNote dim">
-                  Max profit (if you're the only winner)
-                  <br />
-                  Max payout: {showToWin ? formatVaraFromPlanck(maxPayoutBn) : '—'} VARA
+                {betAmountNumber > 0 && betAmountNumber < MIN_BET_VARA && (
+                  <div className="mcx__warn" role="alert">
+                    Minimum prediction amount is {MIN_BET_VARA} VARA
+                  </div>
+                )}
+
+              </>
+            )}
+
+            {showInfoModal && (
+              <div className="mcx__infoOverlay" role="dialog" aria-modal="true">
+                <div className="mcx__infoPanel">
+                  <button className="mcx__infoClose" onClick={() => setShowInfoModal(false)} type="button">✕</button>
+                  <h3 className="mcx__infoTitle">How Rewards Work</h3>
+
+                  <p className="mcx__infoIntro">
+                    SmartCup uses a <b>pari-mutuel pool system</b> — players compete against each other, not fixed odds.
+                  </p>
+
+                  <div className="mcx__infoSection">
+                    <p className="mcx__infoSectionTitle">When you place a prediction stake:</p>
+                    <ul className="mcx__infoList">
+                      <li><span className="mcx__infoBadge mcx__infoBadge--match">85%</span> goes to the Match Winner Pool</li>
+                      <li><span className="mcx__infoBadge mcx__infoBadge--final">10%</span> goes to the Final Prize Pool</li>
+                      <li><span className="mcx__infoBadge mcx__infoBadge--fee">5%</span> goes to the Protocol / DAO fee</li>
+                    </ul>
+                  </div>
+
+                  <div className="mcx__infoSection">
+                    <p className="mcx__infoSectionTitle">After the match ends:</p>
+                    <ul className="mcx__infoList">
+                      <li>The 85% match pool is split among all correct predictions</li>
+                      <li>Your reward depends on how many players predicted the same outcome</li>
+                      <li>Rare correct predictions pay more; popular outcomes pay less</li>
+                    </ul>
+                  </div>
+
+                  <div className="mcx__infoSection mcx__infoSection--warn">
+                    <p className="mcx__infoSectionTitle">Important:</p>
+                    <ul className="mcx__infoList">
+                      <li>Rewards are <b>not fixed</b> — they update as more players join</li>
+                      <li>In crowded outcomes, rewards can be lower than your prediction stake</li>
+                      <li>If no one predicts correctly, the pool rolls into the Final Prize Pool</li>
+                    </ul>
+                  </div>
+
+                  <a href="/rules" target="_blank" rel="noopener noreferrer" className="mcx__infoLink">View full rules →</a>
                 </div>
               </div>
-            </div>
+            )}
           </>
         )}
       </div>

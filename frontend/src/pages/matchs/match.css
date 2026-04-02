@@ -144,8 +144,9 @@
 
 .arena__topbarLeft {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
 }
 
 .arena__topbarRight {
@@ -177,7 +178,7 @@
 }
 
 @media (max-width: 600px) {
-  .arena__address { display: none; }
+  .arena__address { font-size: 10px; }
 }
 
 /* ── StatPill ────────────────────────────────────────────── */
@@ -203,8 +204,9 @@
 
 .arena__walletGroup {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
 }
 
 /* ── LogoBtn ─────────────────────────────────────────────── */
@@ -751,4 +753,44 @@
 .mcx__betBtn--wine:hover:enabled {
   transform: translateY(-2px);
   filter: brightness(1.08);
+}
+
+/* ── Back button & small logo ────────────────────────────── */
+.arena__backBtn {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 8px;
+  color: rgba(255,255,255,0.85);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s;
+  margin-right: 6px;
+}
+.arena__backBtn:hover { background: rgba(255,46,118,0.18); color: #ff8fb8; }
+
+.arena__logoBtn--sm { padding: 0; background: none; border: none; cursor: pointer; }
+.logo-xs { height: 44px; width: auto; object-fit: contain; }
+
+.arena__phaseCenter { text-align: right; }
+
+/* ── Info button (sidebar) ───────────────────────────────── */
+.arena__infoBtn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: rgba(255,255,255,0.45);
+  font-size: 13px;
+  padding: 0 0 0 6px;
+  vertical-align: middle;
+  transition: color 0.2s;
+}
+.arena__infoBtn:hover { color: #ff2e76; }
+
+/* ── User's existing bet in sidebar ─────────────────────── */
+.sideUserBet {
+  border-top: 1px solid rgba(255,255,255,0.08);
+  padding-top: 8px;
+  margin-top: 8px;
 }

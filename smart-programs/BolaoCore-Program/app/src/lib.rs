@@ -11,8 +11,8 @@ pub struct Program;
 #[program]
 impl Program {
     
-    pub fn new( final_prize_distributor: ActorId) -> Self {
-        Service::seed(final_prize_distributor);
+    pub fn new( admin: ActorId) -> Self {
+        Service::seed(admin);
         Self
     }
 

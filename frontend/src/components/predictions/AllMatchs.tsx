@@ -9,6 +9,8 @@ import { useToast } from '@/hooks/useToast';
 import { HexString } from '@gear-js/api';
 import { TEAM_FLAGS } from '@/utils/teams';
 import { StyledWallet } from '@/components/wallet/Wallet';
+import { useVaraPrice } from '@/hooks/useVaraPrice';
+import { reportClaim } from '@/utils/statsReporter';
 
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as string;
 
@@ -139,7 +141,8 @@ function getPhases(matches: MatchInfo[]): string[] {
   return Array.from(set).sort();
 }
 
-type SortField = 'match_id' | 'date';
+type SortField = 'match_id_asc' | 'match_id_desc' | 'date_asc' | 'date_desc';
+type StatusFilter = '' | 'predicted' | 'not_predicted';
 
 export const MatchesTableComponent: React.FC = () => {
   const { api, isApiReady } = useApi();
@@ -156,9 +159,12 @@ export const MatchesTableComponent: React.FC = () => {
   // Filters
   const [filterStage, setFilterStage] = useState('');
   const [filterDate, setFilterDate] = useState('');
-  const [sortField, setSortField] = useState<SortField>('match_id');
+  const [sortField, setSortField] = useState<SortField>('match_id_asc');
 
+  const [filterStatus, setFilterStatus] = useState<StatusFilter>('');
   const [claimLoadingId, setClaimLoadingId] = useState<string | null>(null);
+  const { planckToUsd } = useVaraPrice();
+  const [userBetMatchIds, setUserBetMatchIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     void web3Enable('Bolao Matches UI');
@@ -180,12 +186,13 @@ export const MatchesTableComponent: React.FC = () => {
         away: String(m?.away ?? ''),
         kick_off: String(m?.kick_off ?? '0'),
         result: m?.result ?? null,
-        match_prize_pool: String(m?.match_prize_pool ?? '0'),
+        // Prefer match_prize_pool, fall back to total_pool field
+        match_prize_pool: String(m?.match_prize_pool ?? m?.total_pool ?? '0'),
         has_bets: Boolean(m?.has_bets),
 
         total_winner_stake: m?.total_winner_stake != null ? String(m.total_winner_stake) : undefined,
         total_claimed: m?.total_claimed != null ? String(m.total_claimed) : undefined,
-        settlement_prepared: m?.settlement_prepared != null ? Boolean(m.settlement_prepared) : undefined,
+        settlement_prepared: m?.settlement_prepared != null ? Boolean(m.settlement_prepared) : false,
         dust_swept: m?.dust_swept != null ? Boolean(m.dust_swept) : undefined,
       }));
 
@@ -201,6 +208,18 @@ export const MatchesTableComponent: React.FC = () => {
   useEffect(() => {
     fetchMatches();
   }, [fetchMatches]);
+
+  const fetchUserBets = useCallback(async () => {
+    if (!api || !isApiReady || !account) return;
+    try {
+      const svc = new Service(new Program(api, PROGRAM_ID as HexString));
+      const bets = (await (svc as any).queryBetsByUser(account.decodedAddress)) as any[];
+      const ids = new Set((bets ?? []).map((b: any) => String(b?.match_id ?? '')));
+      setUserBetMatchIds(ids);
+    } catch { setUserBetMatchIds(new Set()); }
+  }, [api, isApiReady, account]);
+
+  useEffect(() => { void fetchUserBets(); }, [fetchUserBets]);
 
   const phases = useMemo(() => getPhases(matches ?? []), [matches]);
 
@@ -233,11 +252,27 @@ export const MatchesTableComponent: React.FC = () => {
       });
     }
 
+    // Status filter
+    if (filterStatus === 'predicted') {
+      list = list.filter((m) => userBetMatchIds.has(m.match_id));
+    } else if (filterStatus === 'not_predicted') {
+      list = list.filter((m) => !userBetMatchIds.has(m.match_id));
+    }
+
     // Sort
-    if (sortField === 'date') {
+    if (sortField === 'date_asc') {
       list = [...list].sort((a, b) => Number(a.kick_off) - Number(b.kick_off));
+    } else if (sortField === 'date_desc') {
+      list = [...list].sort((a, b) => Number(b.kick_off) - Number(a.kick_off));
+    } else if (sortField === 'match_id_desc') {
+      list = [...list].sort((a, b) => {
+        const ai = Number(a.match_id);
+        const bi = Number(b.match_id);
+        if (Number.isFinite(ai) && Number.isFinite(bi)) return bi - ai;
+        return b.match_id.localeCompare(a.match_id);
+      });
     } else {
-      // Default: match #
+      // Default: match # ascending (first → last)
       list = [...list].sort((a, b) => {
         const ai = Number(a.match_id);
         const bi = Number(b.match_id);
@@ -247,7 +282,7 @@ export const MatchesTableComponent: React.FC = () => {
     }
 
     return list;
-  }, [matches, filterSearch, headerSearch, filterStage, filterDate, sortField]);
+  }, [matches, filterSearch, headerSearch, filterStage, filterDate, sortField, filterStatus, userBetMatchIds]);
 
   const handleClaim = useCallback(
     async (matchId: string) => {
@@ -264,16 +299,31 @@ export const MatchesTableComponent: React.FC = () => {
         setClaimLoadingId(matchId);
         const svc = new Service(new Program(api, PROGRAM_ID as HexString));
 
-        const tx: TransactionBuilder<unknown> = (svc as any).claimPrize(BigInt(matchId));
+        const tx: TransactionBuilder<unknown> = (svc as any).claimMatchReward(BigInt(matchId));
 
         const { signer } = await web3FromSource(account.meta.source);
         tx.withAccount(account.decodedAddress, { signer }).withValue(0n);
+
+        // Snapshot balance before claim to compute the earned amount
+        let balanceBefore = 0n;
+        try {
+          const raw = await (api as any).balance.findOut(account.decodedAddress);
+          balanceBefore = BigInt(raw.toString());
+        } catch { /* non-fatal */ }
 
         await tx.calculateGas();
         const { blockHash, response } = await tx.signAndSend();
         toast.info(`Claim included in block ${blockHash}`);
         await response();
         toast.success('Reward claimed ✅');
+
+        // Compute earned amount from balance delta and report to stats backend
+        try {
+          const raw = await (api as any).balance.findOut(account.decodedAddress);
+          const balanceAfter = BigInt(raw.toString());
+          const diff = balanceAfter - balanceBefore;
+          reportClaim(account.decodedAddress, matchId, diff > 0n ? diff.toString() : '0');
+        } catch { /* non-fatal */ }
 
         setTimeout(fetchMatches, 900);
       } catch (e) {
@@ -326,7 +376,7 @@ export const MatchesTableComponent: React.FC = () => {
         <div className="mxFilters">
           <div className="mxFilters__left">
             <span className="mxPill">Prediction closes 10m before kickoff</span>
-            <span className="mxPill">75% Match / 20% Final / 5% DAO</span>
+            <span className="mxPill">85% Match / 10% Final / 5% DAO</span>
             <span className="mxPill">On-chain pools</span>
             <span className="mxPill mxPill--live">LIVE</span>
           </div>
@@ -337,8 +387,21 @@ export const MatchesTableComponent: React.FC = () => {
               value={sortField}
               onChange={(e) => setSortField(e.target.value as SortField)}
               aria-label="Sort by">
-              <option value="match_id">Sort: Match #</option>
-              <option value="date">Sort: Date</option>
+              <option value="match_id_asc">Match #: First → Last</option>
+              <option value="match_id_desc">Match #: Last → First</option>
+              <option value="date_asc">Date: Oldest First</option>
+              <option value="date_desc">Date: Newest First</option>
+            </select>
+
+            {/* Status filter */}
+            <select
+              className="mxFilterSelect"
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value as StatusFilter)}
+              aria-label="Filter by prediction status">
+              <option value="">All Statuses</option>
+              <option value="predicted">Predicted</option>
+              <option value="not_predicted">Not Predicted</option>
             </select>
 
             {/* Stage filter */}
@@ -364,7 +427,7 @@ export const MatchesTableComponent: React.FC = () => {
             />
 
             {/* Clear filters */}
-            {(filterStage || filterDate || filterSearch || headerSearch) && (
+            {(filterStage || filterDate || filterSearch || headerSearch || filterStatus) && (
               <button
                 className="mxBtn mxBtn--ghost"
                 type="button"
@@ -373,6 +436,7 @@ export const MatchesTableComponent: React.FC = () => {
                   setFilterDate('');
                   setFilterSearch('');
                   setHeaderSearch('');
+                  setFilterStatus('');
                 }}>
                 Clear
               </button>
@@ -408,8 +472,10 @@ export const MatchesTableComponent: React.FC = () => {
                     ? `Live now ${r.home}-${r.away} (proposed).`
                     : `Open for predictions • ${closesLabel(m.kick_off)}.`;
 
+              const hasPrediction = userBetMatchIds.has(m.match_id);
+
               return (
-                <article className="mxCard" key={m.match_id}>
+                <article className={'mxCard' + (hasPrediction ? ' mxCard--predicted' : '')} key={m.match_id}>
                   <div className="mxCard__top">
                     <div className="mxTeams" title={`${m.home} vs ${m.away}`}>
                       <div className="mxTeam">
@@ -432,23 +498,31 @@ export const MatchesTableComponent: React.FC = () => {
                     <div className="mxCard__topRight">
                       {r.label !== 'FINAL' ? <span className="mxPill">{closesLabel(m.kick_off)}</span> : null}
 
-                      {r.label === 'FINAL' ? (
-                        /* Claim button — yellow/flashing as in My Predictions */
+                      {/* Prediction Made badge on the right */}
+                      {hasPrediction && (
+                        <span className="mxStatus mxStatus--predicted">✓ Predicted</span>
+                      )}
+
+                      {/* Claim badge — non-interactive, goes to match page for actual claim */}
+                      {r.label === 'FINAL' && hasPrediction && m.settlement_prepared ? (
+                        <span className="mxBtn mxBtn--claim mxBtn--static">
+                          Reward Ready
+                        </span>
+                      ) : hasPrediction ? (
                         <button
-                          className="mxBtn mxBtn--claim"
-                          onClick={() => handleClaim(m.match_id)}
-                          disabled={claimLoadingId === m.match_id}
+                          className="mxBtn mxBtn--soft"
+                          onClick={() => navigate(`/2026worldcup/match/${m.match_id}`)}
                           type="button">
-                          {claimLoadingId === m.match_id ? 'Claiming…' : 'Claim'}
+                          Details
                         </button>
-                      ) : (
+                      ) : r.label !== 'FINAL' ? (
                         <button
                           className="mxBtn mxBtn--primary"
                           onClick={() => navigate(`/2026worldcup/match/${m.match_id}`)}
                           type="button">
                           Predict
                         </button>
-                      )}
+                      ) : null}
                     </div>
 
                     <div className="mxStatusLine">{statusText}</div>
@@ -478,16 +552,12 @@ export const MatchesTableComponent: React.FC = () => {
                     <div className="mxPools">
                       <div className="mxPool">
                         <div className="mxPool__k">Match Prize Pool</div>
-                        <div className="mxPool__v">{totalPoolHuman} VARA</div>
-                      </div>
-
-                      <div className="mxActions">
-                        <button
-                          className="mxBtn mxBtn--soft"
-                          onClick={() => navigate(`/2026worldcup/match/${m.match_id}`)}
-                          type="button">
-                          Details
-                        </button>
+                        <div className="mxPool__v">
+                          {totalPoolHuman !== '—' ? `${totalPoolHuman} VARA` : (m.has_bets ? 'Pool active' : '—')}
+                        </div>
+                        {totalPoolHuman !== '—' && (
+                          <div className="mxPool__usd">{planckToUsd(m.match_prize_pool)}</div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -500,14 +570,6 @@ export const MatchesTableComponent: React.FC = () => {
         )}
       </div>
 
-      {/* View all matches CTA at bottom */}
-      {!loading && filteredMatches.length > 0 && (
-        <div style={{ textAlign: 'center', padding: '16px 0' }}>
-          <button className="mxBtn mxBtn--ghost" type="button" onClick={fetchMatches}>
-            Refresh
-          </button>
-        </div>
-      )}
     </div>
   );
 };

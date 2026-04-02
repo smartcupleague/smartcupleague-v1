@@ -2,10 +2,11 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import './dashboard.css';
 import { useAccount, useApi } from '@gear-js/react-hooks';
 import { useToast } from '@/hooks/useToast';
-import { web3Enable } from '@polkadot/extension-dapp';
+import { web3Enable, web3FromSource } from '@polkadot/extension-dapp';
 import { decodeAddress } from '@polkadot/util-crypto';
 import { u8aToHex } from '@polkadot/util';
 import { HexString } from '@gear-js/api';
+import { TransactionBuilder } from 'sails-js';
 import { Program as CoreProgram, Service as CoreService } from '@/hocs/lib';
 import { Program as DaoProgram, Service as DaoService } from '@/hocs/dao';
 import { TEAM_FLAGS } from '@/utils/teams';
@@ -13,7 +14,6 @@ import { StyledWallet } from '@/components/wallet/Wallet';
 import { useNavigate } from 'react-router-dom';
 import { useOnboarding } from '@/hooks/useOnboarding';
 import { OnboardingModal } from '@/components/onboarding/OnboardingModal';
-import { AppFooter } from '@/components/layout/footer/AppFooter';
 
 const CORE_PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as string;
 const DAO_PROGRAM_ID = import.meta.env.VITE_DAOPROGRAM as string;
@@ -36,11 +36,13 @@ type CoreMatch = {
 };
 
 type CoreState = {
-  owner: string;
-  kyc_contract: string;
-  final_prize_distributor: string;
-  fee_accum: string | number | bigint;
-  final_prize_accum: string | number | bigint;
+  admin: string;
+  protocol_fee_accumulated: string | number | bigint;
+  final_prize_accumulated: string | number | bigint;
+  final_prize_finalized: boolean;
+  final_prize_claimable_total: string | number | bigint;
+  final_prize_rounding_dust: string | number | bigint;
+  podium_finalized: boolean;
   matches: CoreMatch[];
   phases: Array<{ name: string; start_time: number; end_time: number }>;
   user_points: Array<[string, number]>;
@@ -58,6 +60,15 @@ type DaoProposal = {
   abstain: number;
   status: string;
   executed: boolean;
+};
+
+type FinalPrizeClaimStatus = {
+  wallet: string;
+  final_prize_finalized: boolean;
+  eligible: boolean;
+  amount_claimable: string;
+  already_claimed: boolean;
+  points: number;
 };
 
 function normalizeTeamKey(team: string) {
@@ -199,6 +210,12 @@ function sumAllMatchPools(matches: CoreMatch[]) {
   return matches.reduce((acc, m) => acc + matchPool(m), 0n);
 }
 
+function isZeroLikeAmount(value?: string | number | bigint | null) {
+  if (value === null || value === undefined) return true;
+  const raw = String(value).trim().toLowerCase();
+  return raw === '' || raw === '0' || raw === '0x0';
+}
+
 function TeamFlag({ team }: { team: string }) {
   return (
     <img
@@ -220,7 +237,6 @@ export default function Home() {
   const navigate = useNavigate();
   const onboarding = useOnboarding();
 
-  // Show onboarding modal when wallet connects for the first time
   const showOnboarding = !!account && !onboarding.accepted;
 
   const myWalletHex = useMemo(() => {
@@ -231,6 +247,9 @@ export default function Home() {
   const [coreState, setCoreState] = useState<CoreState | null>(null);
   const [daoProposals, setDaoProposals] = useState<DaoProposal[]>([]);
   const [loading, setLoading] = useState(false);
+  const [userBets, setUserBets] = useState<any[]>([]);
+  const [claimStatus, setClaimStatus] = useState<FinalPrizeClaimStatus | null>(null);
+  const [claimLoading, setClaimLoading] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -254,6 +273,7 @@ export default function Home() {
 
   const fetchCoreState = useCallback(async () => {
     if (!coreProgram) return;
+
     const svc = new CoreService(coreProgram);
     const s = (await svc.queryState()) as any;
 
@@ -264,7 +284,12 @@ export default function Home() {
       away: String(m?.away ?? ''),
       kick_off: Number(m?.kick_off ?? 0),
       result: m?.result ?? { unresolved: null },
-      total_pool: m?.total_pool ?? m?.pool ?? m?.pool_total ?? '0',
+      total_pool:
+        m?.total_pool ??
+        m?.match_prize_pool ??
+        m?.pool ??
+        m?.pool_total ??
+        '0',
       pool_home: m?.pool_home ?? '0',
       pool_draw: m?.pool_draw ?? '0',
       pool_away: m?.pool_away ?? '0',
@@ -273,15 +298,19 @@ export default function Home() {
     }));
 
     const user_points: Array<[string, number]> = Array.isArray(s?.user_points)
-      ? s.user_points.map((it: any) => [String(it?.[0] ?? ''), Number(it?.[1] ?? 0)] as [string, number])
+      ? s.user_points.map(
+          (it: any) => [String(it?.[0] ?? ''), Number(it?.[1] ?? 0)] as [string, number]
+        )
       : [];
 
     setCoreState({
-      owner: String(s?.owner ?? ''),
-      kyc_contract: String(s?.kyc_contract ?? ''),
-      final_prize_distributor: String(s?.final_prize_distributor ?? ''),
-      fee_accum: s?.protocol_fee_accumulated ?? '0',
-      final_prize_accum: s?.final_prize_accumulated ?? '0',
+      admin: String(s?.admin ?? s?.owner ?? ''),
+      protocol_fee_accumulated: s?.protocol_fee_accumulated ?? s?.fee_accum ?? '0',
+      final_prize_accumulated: s?.final_prize_accumulated ?? s?.final_prize_accum ?? '0',
+      final_prize_finalized: Boolean(s?.final_prize_finalized),
+      final_prize_claimable_total: s?.final_prize_claimable_total ?? '0',
+      final_prize_rounding_dust: s?.final_prize_rounding_dust ?? '0',
+      podium_finalized: Boolean(s?.podium_finalized),
       matches,
       phases: Array.isArray(s?.phases)
         ? s.phases.map((p: any) => ({
@@ -294,11 +323,51 @@ export default function Home() {
     });
   }, [coreProgram]);
 
+  const fetchUserBets = useCallback(async () => {
+    if (!coreProgram || !account) {
+      setUserBets([]);
+      return;
+    }
+
+    try {
+      const svc = new CoreService(coreProgram);
+      const bets = (await (svc as any).queryBetsByUser(account.decodedAddress)) as any[];
+      setUserBets(Array.isArray(bets) ? bets : []);
+    } catch {
+      setUserBets([]);
+    }
+  }, [coreProgram, account]);
+
+  const fetchFinalPrizeClaimStatus = useCallback(async () => {
+    if (!coreProgram || !account) {
+      setClaimStatus(null);
+      return;
+    }
+
+    try {
+      const svc = new CoreService(coreProgram);
+      const status = (await (svc as any).queryFinalPrizeClaimStatus(account.decodedAddress)) as any;
+
+      setClaimStatus({
+        wallet: String(status?.wallet ?? ''),
+        final_prize_finalized: Boolean(status?.final_prize_finalized),
+        eligible: Boolean(status?.eligible),
+        amount_claimable: status?.amount_claimable?.toString?.() ?? '0',
+        already_claimed: Boolean(status?.already_claimed),
+        points: Number(status?.points ?? 0),
+      });
+    } catch (e) {
+      console.error(e);
+      setClaimStatus(null);
+    }
+  }, [coreProgram, account]);
+
   const fetchDaoProposals = useCallback(async () => {
     if (!daoProgram) return;
-    const svc = new DaoService(daoProgram);
 
+    const svc = new DaoService(daoProgram);
     const ps = (await (svc as any).queryProposals()) as any[];
+
     const normalized: DaoProposal[] = Array.isArray(ps)
       ? ps.map((p: any) => ({
           id: Number(p?.id ?? 0),
@@ -320,16 +389,29 @@ export default function Home() {
 
   const fetchAll = useCallback(async () => {
     if (!isApiReady) return;
+
     setLoading(true);
     try {
-      await Promise.all([fetchCoreState(), fetchDaoProposals()]);
+      await Promise.all([
+        fetchCoreState(),
+        fetchDaoProposals(),
+        fetchUserBets(),
+        fetchFinalPrizeClaimStatus(),
+      ]);
     } catch (e) {
       console.error(e);
       toast.error('Failed to load home data');
     } finally {
       setLoading(false);
     }
-  }, [isApiReady, fetchCoreState, fetchDaoProposals, toast]);
+  }, [
+    isApiReady,
+    fetchCoreState,
+    fetchDaoProposals,
+    fetchUserBets,
+    fetchFinalPrizeClaimStatus,
+    toast,
+  ]);
 
   useEffect(() => {
     void fetchAll();
@@ -352,21 +434,23 @@ export default function Home() {
   }, [sortedLeaderboard, myWalletHex]);
 
   const distanceToNext = useMemo(() => {
-    if (!myWalletHex || !myRankInfo.rank) return null as null | { targetRank: number; targetAddr: string; gap: number };
+    if (!myWalletHex || !myRankInfo.rank) {
+      return null as null | { targetRank: number; targetAddr: string; gap: number };
+    }
+
     const idx = myRankInfo.rank - 1;
     const above = sortedLeaderboard[idx - 1];
     if (!above) return null;
+
     const gap = Math.max(0, (above.points ?? 0) - (myRankInfo.points ?? 0));
     return { targetRank: idx, targetAddr: above.wallet, gap };
   }, [sortedLeaderboard, myWalletHex, myRankInfo.rank, myRankInfo.points]);
 
   const poolsInfo = useMemo(() => {
-
-
     const matches = coreState?.matches ?? [];
     const allPoolsBn = matches.length ? sumAllMatchPools(matches) : 0n;
-    const finalPrizeBn = safeBigInt(coreState?.final_prize_accum ?? 0);
-    const feeBn = safeBigInt(coreState?.fee_accum ?? 0);
+    const finalPrizeBn = safeBigInt(coreState?.final_prize_accumulated ?? 0);
+    const feeBn = safeBigInt(coreState?.protocol_fee_accumulated ?? 0);
     const withBets = matches.filter((m) => m.has_bets).length;
     const totalPredictions = matches.reduce((acc, m) => acc + (m.participants?.length ?? 0), 0);
 
@@ -388,6 +472,7 @@ export default function Home() {
   }, [coreState]);
 
   const lastMatch = finalizedMatches[0] ?? null;
+
   const lastMatchLine = useMemo(() => {
     if (!lastMatch) return '—';
     const date = formatDate(Number(lastMatch.kick_off));
@@ -402,14 +487,49 @@ export default function Home() {
       .sort((a, b) => kickOffToMs(Number(a.kick_off)) - kickOffToMs(Number(b.kick_off)));
   }, [coreState]);
 
-  const nextMatch = upcoming[0] ?? null;
+  const predictedMatchIds = useMemo(
+    () => new Set(userBets.map((b) => String(b?.match_id ?? ''))),
+    [userBets]
+  );
 
-  const predictedProgress = useMemo(() => {
-    const total = poolsInfo.totalMatches || 0;
-    const predicted = total ? finalizedMatches.length : 0;
-    const pct = total ? Math.round((predicted / total) * 100) : 0;
-    return { predicted, total, pct };
-  }, [poolsInfo.totalMatches, finalizedMatches.length]);
+  const nextMatch = useMemo(() => {
+    const unpredicted = upcoming.filter((m) => !predictedMatchIds.has(String(m.match_id)));
+    return unpredicted[0] ?? upcoming[0] ?? null;
+  }, [upcoming, predictedMatchIds]);
+
+  const userPredStats = useMemo(() => {
+    if (!account || !userBets.length || !coreState?.matches) {
+      return { made: 0, exactResults: 0, correctOutcomes: 0 };
+    }
+
+    let exact = 0;
+    let outcome = 0;
+
+    for (const b of userBets) {
+      const mid = String(b?.match_id ?? '');
+      const m = coreState.matches.find((x) => String(x.match_id) === mid);
+      if (!m) continue;
+
+      const fin = (m.result as any)?.Finalized ?? (m.result as any)?.finalized;
+      if (!fin?.score) continue;
+
+      const fs = { home: Number(fin.score.home ?? 0), away: Number(fin.score.away ?? 0) };
+      const bs = { home: Number(b?.score?.home ?? 0), away: Number(b?.score?.away ?? 0) };
+
+      if (bs.home === fs.home && bs.away === fs.away) {
+        exact++;
+        outcome++;
+        continue;
+      }
+
+      const fOut = fs.home > fs.away ? 1 : fs.home < fs.away ? -1 : 0;
+      const bOut = bs.home > bs.away ? 1 : bs.home < bs.away ? -1 : 0;
+
+      if (fOut !== 0 && bOut === fOut) outcome++;
+    }
+
+    return { made: userBets.length, exactResults: exact, correctOutcomes: outcome };
+  }, [account, userBets, coreState?.matches]);
 
   const governance = useMemo(() => {
     const active = daoProposals.filter((p) => (p.status ?? '').toLowerCase() === 'active');
@@ -418,7 +538,7 @@ export default function Home() {
   }, [daoProposals]);
 
   const leaderboardTop = useMemo(() => {
-    return sortedLeaderboard.slice(0, 5).map((r, idx) => ({
+    return sortedLeaderboard.slice(0, 10).map((r, idx) => ({
       rank: idx + 1,
       full: r.wallet,
       addr: shortHex(r.wallet),
@@ -428,15 +548,128 @@ export default function Home() {
 
   const usdcLabel = 'VARA';
 
-  // Next match closes label
   const nextMatchCloses = useMemo(() => {
     if (!nextMatch) return '—';
     return closesLabel(Number(nextMatch.kick_off));
   }, [nextMatch]);
 
+  const claimablePrizeBn = useMemo(
+    () => safeBigInt(claimStatus?.amount_claimable ?? 0),
+    [claimStatus]
+  );
+
+  const claimablePrizeText = useMemo(
+    () => formatTokenCompact(claimStatus?.amount_claimable ?? 0, VARA_DECIMALS),
+    [claimStatus]
+  );
+
+  const canClaimPrize = useMemo(() => {
+    return (
+      !!account &&
+      !!claimStatus &&
+      claimStatus.final_prize_finalized &&
+      claimStatus.eligible &&
+      !claimStatus.already_claimed &&
+      !isZeroLikeAmount(claimStatus.amount_claimable) &&
+      claimablePrizeBn > 0n &&
+      !claimLoading
+    );
+  }, [account, claimStatus, claimablePrizeBn, claimLoading]);
+
+  const claimPrizeStatusText = useMemo(() => {
+    if (!account) return 'Connect wallet';
+    if (!claimStatus) return 'Checking...';
+    if (!claimStatus.final_prize_finalized) return 'Pending';
+    if (claimStatus.already_claimed) return 'Claimed';
+    if (!claimStatus.eligible) return 'Not eligible';
+    if (isZeroLikeAmount(claimStatus.amount_claimable) || claimablePrizeBn === 0n) return 'No prize';
+    return 'Eligible';
+  }, [account, claimStatus, claimablePrizeBn]);
+
+  const claimPrizeMessage = useMemo(() => {
+    if (!account) return 'Connect your wallet to view your available prize.';
+    if (!claimStatus) return 'Loading claim status...';
+    if (!claimStatus.final_prize_finalized) return 'Final prize pool is not finalized yet.';
+    if (!claimStatus.eligible) return 'You are not eligible for the final prize.';
+    if (claimStatus.already_claimed) return 'Prize already claimed.';
+    if (isZeroLikeAmount(claimStatus.amount_claimable) || claimablePrizeBn === 0n) {
+      return 'No claimable prize available.';
+    }
+    return `Available to claim: ${claimablePrizeText} ${usdcLabel}`;
+  }, [account, claimStatus, claimablePrizeBn, claimablePrizeText, usdcLabel]);
+
+  const handleClaimPrize = useCallback(async () => {
+    if (!account) {
+      toast.error('Connect your wallet first');
+      return;
+    }
+
+    if (!isApiReady || !api || !coreProgram) {
+      toast.error('Node API not ready');
+      return;
+    }
+
+    if (!claimStatus?.final_prize_finalized) {
+      toast.error('Final prize is not finalized yet');
+      return;
+    }
+
+    if (!claimStatus.eligible) {
+      toast.error('You are not eligible for the final prize');
+      return;
+    }
+
+    if (claimStatus.already_claimed) {
+      toast.error('Prize already claimed');
+      return;
+    }
+
+    if (isZeroLikeAmount(claimStatus.amount_claimable) || claimablePrizeBn === 0n) {
+      toast.error('No claimable prize');
+      return;
+    }
+
+    try {
+      setClaimLoading(true);
+
+      const source = account.meta?.source;
+      if (!source) throw new Error('Wallet source unavailable');
+
+      const svc = new CoreService(coreProgram);
+      const tx = (svc as any).claimFinalPrize() as TransactionBuilder<unknown>;
+
+      const injector = await web3FromSource(source);
+      tx.withAccount(account.decodedAddress, { signer: injector.signer });
+
+      await tx.calculateGas();
+
+      const { blockHash, response } = await tx.signAndSend();
+      toast.success(`Claim tx submitted: ${blockHash}`);
+
+      await response();
+      toast.success('Prize claimed successfully');
+
+      await Promise.all([fetchCoreState(), fetchFinalPrizeClaimStatus()]);
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to claim prize');
+    } finally {
+      setClaimLoading(false);
+    }
+  }, [
+    account,
+    api,
+    isApiReady,
+    coreProgram,
+    toast,
+    claimStatus,
+    claimablePrizeBn,
+    fetchCoreState,
+    fetchFinalPrizeClaimStatus,
+  ]);
+
   return (
     <div className="h-dash">
-      {/* First-time onboarding modal */}
       {showOnboarding && <OnboardingModal onAccept={onboarding.accept} />}
 
       <div className="h-bg" aria-hidden="true" />
@@ -459,9 +692,7 @@ export default function Home() {
         </div>
       </header>
 
-      {/* MAIN GRID */}
       <main className="h-grid">
-        {/* ── 1. Your SmartCup Status ──────────────────────────────── */}
         <section className="h-card h-card--status">
           <div className="h-card__head">
             <h3>Your SmartCup Status</h3>
@@ -471,7 +702,6 @@ export default function Home() {
             <div className="h-status__top">
               <div className="h-status__tournament">{tournamentName}</div>
 
-              {/* PRIMARY: Rank position */}
               <div className="h-rank h-rank--primary">
                 <div className="h-rank__trophy" aria-hidden="true">🏆</div>
                 <div className="h-rank__main">
@@ -483,7 +713,6 @@ export default function Home() {
             </div>
 
             <div className="h-status__mid">
-              {/* SECONDARY: Points */}
               <div className="h-points h-points--featured">
                 <div className="h-points__value">{myRankInfo.points}</div>
                 <div className="h-points__label">Points</div>
@@ -504,12 +733,11 @@ export default function Home() {
               <div className="h-kv__row">
                 <span className="muted">Predictions made</span>
                 <span className="h-kv__value">
-                  {/* TODO: exact scores and correct outcomes require per-user detailed data from contract */}
-                  {predictedProgress.predicted}/{predictedProgress.total}
+                  {account ? userPredStats.made : '—'}
                   {' · '}
-                  <span title="Exact scores — data coming from contract">— exact</span>
+                  <span title="Exact scores">{account ? userPredStats.exactResults : '—'} exact</span>
                   {' · '}
-                  <span title="Correct outcomes — data coming from contract">— correct</span>
+                  <span title="Correct outcomes">{account ? userPredStats.correctOutcomes : '—'} correct</span>
                 </span>
               </div>
 
@@ -517,21 +745,22 @@ export default function Home() {
                 <span className="muted">Distance to next rank</span>
                 <span className="h-kv__value">
                   {distanceToNext
-                    ? `You're ${distanceToNext.gap} points behind #${distanceToNext.targetRank} · ${shortHex(distanceToNext.targetAddr)}`
+                    ? `You're ${distanceToNext.gap} points behind #${distanceToNext.targetRank} · ${shortHex(
+                        distanceToNext.targetAddr
+                      )}`
                     : '—'}
                 </span>
               </div>
             </div>
 
             <div className="h-card__foot">
-              <button className="h-btn h-btn--soft" type="button" onClick={() => navigate('/leaderboards')}>
+              <button className="h-btn h-btn--soft" type="button" onClick={() => navigate('/leaderboard')}>
                 View full Leaderboard →
               </button>
             </div>
           </div>
         </section>
 
-        {/* ── 2. Your Prediction Performance ──────────────────────── */}
         <section className="h-card h-card--perf">
           <div className="h-card__head">
             <h3>Your Prediction Performance</h3>
@@ -542,29 +771,23 @@ export default function Home() {
               <div className="h-kpi h-kpi--wide">
                 <div className="h-kpi__label">Total Predicted</div>
                 <div className="h-kpi__value">
-                  {/* TODO: requires per-user prediction total from contract */}
-                  {coreState ? `${predictedProgress.predicted} / ${predictedProgress.total}` : '—'}
+                  {account ? `${userPredStats.made} / ${poolsInfo.totalMatches}` : '—'}
                 </div>
               </div>
 
               <div className="h-kpi">
                 <div className="h-kpi__label">Total Earned</div>
                 <div className="h-kpi__value">
-                  {/* TODO: requires per-user earnings total from contract */}
                   — <span className="muted">{usdcLabel}</span>
                 </div>
               </div>
 
               <div className="h-kpi">
                 <div className="h-kpi__label">Net Performance</div>
-                <div className="h-kpi__value">
-                  {/* TODO: requires per-user net calculation from contract */}
-                  —
-                </div>
+                <div className="h-kpi__value">—</div>
               </div>
             </div>
 
-            {/* Next Match to Predict */}
             {nextMatch && (
               <div className="h-next-match">
                 <div className="h-next-match__head">
@@ -608,15 +831,21 @@ export default function Home() {
           </div>
         </section>
 
-        {/* ── 3. Final Prize Pool ──────────────────────────────────── */}
         <section className="h-card h-card--prize">
           <div className="h-card__head">
             <h3>Final Prize Pool</h3>
           </div>
 
-          <div className="h-prize">
+          <div className="h-prize h-prize--with-trophy">
+            <img
+              className="h-prize__trophy"
+              src="/images/WorldCupTrophy_PNG.png"
+              alt="World Cup Trophy"
+              aria-hidden="true"
+            />
+
+            <div className="h-prize__content">
             <div className="h-prize__big">
-              <span className="h-prize__cup" aria-hidden="true">⚽</span>
               <div className="h-prize__value">{coreState ? poolsInfo.finalPrizeText : '—'}</div>
               <div className="h-prize__unit">{usdcLabel}</div>
             </div>
@@ -626,44 +855,66 @@ export default function Home() {
                 <span className="muted">Predictions made</span>
                 <span>{coreState ? poolsInfo.totalPredictions.toLocaleString() : '—'}</span>
               </div>
+
+              <div className="h-row">
+                <span className="muted">Available to claim</span>
+                <span>{account && claimStatus ? `${claimablePrizeText} ${usdcLabel}` : '—'}</span>
+              </div>
+
+              <div className="h-row">
+                <span className="muted">Your points</span>
+                <span>{account && claimStatus ? claimStatus.points : '—'}</span>
+              </div>
+
+              <div className="h-row">
+                <span className="muted">Status</span>
+                <span>{claimPrizeStatusText}</span>
+              </div>
             </div>
 
             <div className="h-prize__note muted">Top 5 players will win after the final match</div>
+            <div className="h-prize__note muted">{claimPrizeMessage}</div>
 
             <div className="h-split">
-              <div className="h-split__bar" aria-label="Distribution 45 25 20 10 5">
+              <div className="h-split__bar" aria-label="Distribution 45 25 15 10 5">
                 <span style={{ width: '45%' }} />
                 <span style={{ width: '25%' }} />
-                <span style={{ width: '20%' }} />
+                <span style={{ width: '15%' }} />
                 <span style={{ width: '10%' }} />
                 <span style={{ width: '5%' }} />
               </div>
               <div className="h-split__legend mono">
                 <span>45%</span>
                 <span>25%</span>
-                <span>20%</span>
+                <span>15%</span>
                 <span>10%</span>
                 <span>5%</span>
               </div>
             </div>
 
             <div className="h-prize__cta">
-              <button className="h-btn h-btn--primary h-btn--block" type="button">
-                Claim Prize
+              <button
+                className="h-btn h-btn--primary h-btn--block"
+                type="button"
+                disabled={!canClaimPrize}
+                onClick={() => void handleClaimPrize()}>
+                {claimLoading
+                  ? 'Claiming...'
+                  : claimStatus?.already_claimed
+                    ? 'Prize Claimed'
+                    : 'Claim Prize'}
               </button>
             </div>
-
+            </div>{/* end h-prize__content */}
           </div>
         </section>
 
-        {/* ── 4. World Cup 2026 Leaderboard ─────────────────────────── */}
         <section className="h-card h-card--leader">
           <div className="h-card__head">
             <h3>{tournamentName} Leaderboard</h3>
           </div>
 
           <div className="h-table">
-            {/* Table header */}
             <div className="h-thead">
               <div className="h-th h-th--rank">Pos.</div>
               <div className="h-th">Address</div>
@@ -679,7 +930,6 @@ export default function Home() {
                 <div className="h-tcell mono" title={r.full}>
                   {r.addr}
                 </div>
-                {/* TODO: Matches/Exact/Outcome per user from contract */}
                 <div className="h-tcell h-tcell--num">—</div>
                 <div className="h-tcell h-tcell--num">—</div>
                 <div className="h-tcell h-tcell--num">—</div>
@@ -697,7 +947,6 @@ export default function Home() {
           </div>
         </section>
 
-        {/* ── 5. Protocol Activity ──────────────────────────────────── */}
         <section className="h-card h-card--activity">
           <div className="h-card__head">
             <h3>Protocol Activity</h3>
@@ -755,7 +1004,6 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Refresh on-chain state moved here from Final Prize Pool */}
             <div className="h-activity__foot">
               <button className="h-btn h-btn--soft" type="button" onClick={fetchAll}>
                 ⟳ Refresh on-chain state
@@ -764,7 +1012,6 @@ export default function Home() {
           </div>
         </section>
 
-        {/* ── 6. Upcoming matches ──────────────────────────────────── */}
         <section className="h-card h-card--matches">
           <div className="h-card__head h-card__head--row">
             <h3>Upcoming matches</h3>
@@ -777,46 +1024,45 @@ export default function Home() {
           </div>
 
           <div className="h-matches">
-            {upcoming.slice(0, 4).map((m) => (
-              <div className="h-match" key={String(m.match_id)}>
-                <div className="h-match__main">
-                  <div className="h-match__teams">
-                    <span className="h-team">
-                      <TeamFlag team={m.home} />
-                      <span className="h-team__name">{m.home}</span>
-                    </span>
-                    <span className="h-vs">vs</span>
-                    <span className="h-team">
-                      <TeamFlag team={m.away} />
-                      <span className="h-team__name">{m.away}</span>
-                    </span>
-                  </div>
-                  <div className="h-match__meta muted">
-                    {(m.phase || '').replace(/_/g, ' ')} <span className="h-dot">•</span>{' '}
-                    {formatDateTime(Number(m.kick_off))}
-                  </div>
-                </div>
+            {upcoming.slice(0, 4).map((m) => {
+              const hasPred = predictedMatchIds.has(String(m.match_id));
 
-                <button
-                  className="h-btn h-btn--soft"
-                  type="button"
-                  onClick={() => navigate(`/2026worldcup/match/${m.match_id}`)}>
-                  Predict Now
-                </button>
-              </div>
-            ))}
+              return (
+                <div className="h-match" key={String(m.match_id)}>
+                  <div className="h-match__main">
+                    <div className="h-match__teams">
+                      <span className="h-team">
+                        <TeamFlag team={m.home} />
+                        <span className="h-team__name">{m.home}</span>
+                      </span>
+                      <span className="h-vs">vs</span>
+                      <span className="h-team">
+                        <TeamFlag team={m.away} />
+                        <span className="h-team__name">{m.away}</span>
+                      </span>
+                      {hasPred && <span className="h-pred-tag">✓ Predicted</span>}
+                    </div>
+                    <div className="h-match__meta muted">
+                      {(m.phase || '').replace(/_/g, ' ')} <span className="h-dot">•</span>{' '}
+                      {formatDateTime(Number(m.kick_off))}
+                    </div>
+                  </div>
+
+                  <button
+                    className={hasPred ? 'h-btn h-btn--ghost' : 'h-btn h-btn--soft'}
+                    type="button"
+                    onClick={() => navigate(`/2026worldcup/match/${m.match_id}`)}>
+                    {hasPred ? 'Details' : 'Predict Now'}
+                  </button>
+                </div>
+              );
+            })}
 
             {!upcoming.length ? <div className="muted">No upcoming matches</div> : null}
           </div>
         </section>
       </main>
 
-      <AppFooter />
-
-      <div className="muted tiny" style={{ padding: '4px 0 10px', textAlign: 'center' }}>
-        {!CORE_PROGRAM_ID ? 'Missing env: VITE_BOLAOCOREPROGRAM' : null}
-        {!DAO_PROGRAM_ID ? (CORE_PROGRAM_ID ? 'Missing env: VITE_DAOPROGRAM' : ' • Missing env: VITE_DAOPROGRAM') : null}
-      </div>
     </div>
   );
 }

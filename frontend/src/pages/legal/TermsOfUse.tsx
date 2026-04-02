@@ -50,7 +50,7 @@ export default function TermsOfUse() {
           <h2>4. Predictions and Pools</h2>
           <p>
             Predictions are settled on-chain based on oracle-verified match results. A portion of each
-            prediction contributes to the match prize pool (75%), the final prize pool (20%), and the
+            prediction contributes to the match prize pool (85%), the final prize pool (10%), and the
             DAO treasury (5%). These parameters may be modified by DAO governance.
           </p>
         </section>
