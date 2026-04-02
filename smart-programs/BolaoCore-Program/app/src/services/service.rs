@@ -38,7 +38,7 @@ impl Service {
     // ── Admin: oracle management ──────────────────────────────────────────────
 
     #[export]
-    pub fn set_oracle_authorized(&mut self, oracle: ActorId, authorized: bool) -> SmartCupEvent {
+    pub fn set_oracle_authorized(&mut self, oracle: ActorId, authorized: bool) {
         let state = SmartCupState::state_mut();
         state.only_admin();
 
@@ -46,7 +46,6 @@ impl Service {
 
         self.emit_event(SmartCupEvent::OracleAuthorized(oracle, authorized))
             .expect("event");
-        SmartCupEvent::OracleAuthorized(oracle, authorized)
     }
 
     // ── Admin: phase & match registration ────────────────────────────────────
@@ -58,7 +57,7 @@ impl Service {
         start_time: u64,
         end_time: u64,
         points_weight: u32,
-    ) -> SmartCupEvent {
+    ) {
         let state = SmartCupState::state_mut();
         state.only_admin();
 
@@ -84,9 +83,8 @@ impl Service {
         };
         state.phases.insert(phase_name.clone(), phase);
 
-        self.emit_event(SmartCupEvent::PhaseRegistered(phase_name.clone()))
+        self.emit_event(SmartCupEvent::PhaseRegistered(phase_name))
             .expect("event");
-        SmartCupEvent::PhaseRegistered(phase_name)
     }
 
     #[export]
@@ -96,7 +94,7 @@ impl Service {
         home: String,
         away: String,
         kick_off: u64,
-    ) -> SmartCupEvent {
+    ) {
         let state = SmartCupState::state_mut();
         state.only_admin();
 
@@ -149,14 +147,12 @@ impl Service {
 
         self.emit_event(SmartCupEvent::MatchRegistered(
             match_id,
-            phase.clone(),
-            home.clone(),
-            away.clone(),
+            phase,
+            home,
+            away,
             kick_off,
         ))
         .expect("event");
-
-        SmartCupEvent::MatchRegistered(match_id, phase, home, away, kick_off)
     }
 
     // ── Betting ───────────────────────────────────────────────────────────────
@@ -167,7 +163,7 @@ impl Service {
         match_id: u64,
         predicted_score: Score,
         predicted_penalty_winner: Option<PenaltyWinner>,
-    ) -> SmartCupEvent {
+    ) {
         let state = SmartCupState::state_mut();
 
         let bettor = msg::source();
@@ -259,14 +255,6 @@ impl Service {
             match_pool_cut,
         ))
         .expect("event");
-
-        SmartCupEvent::BetAccepted(
-            bettor,
-            match_id,
-            predicted_score,
-            predicted_penalty_winner,
-            match_pool_cut,
-        )
     }
 
     // ── Oracle: result proposal ───────────────────────────────────────────────
@@ -277,7 +265,7 @@ impl Service {
         match_id: u64,
         final_score: Score,
         penalty_winner: Option<PenaltyWinner>,
-    ) -> SmartCupEvent {
+    ) {
         let state = SmartCupState::state_mut();
         state.only_oracle();
 
@@ -302,12 +290,11 @@ impl Service {
             oracle,
         ))
         .expect("event");
-        SmartCupEvent::ResultProposed(match_id, final_score, penalty_winner, oracle)
     }
 
     // ── Admin: cancel wrong oracle proposal ──────────────────────────────────
     #[export]
-    pub fn cancel_proposed_result(&mut self, match_id: u64) -> SmartCupEvent {
+    pub fn cancel_proposed_result(&mut self, match_id: u64) {
         let state = SmartCupState::state_mut();
         state.only_admin();
 
@@ -323,13 +310,12 @@ impl Service {
 
         self.emit_event(SmartCupEvent::ResultProposalCancelled(match_id, oracle))
             .expect("event");
-        SmartCupEvent::ResultProposalCancelled(match_id, oracle)
     }
 
     // ── Admin: result finalization ────────────────────────────────────────────
 
     #[export]
-    pub fn finalize_result(&mut self, match_id: u64) -> SmartCupEvent {
+    pub fn finalize_result(&mut self, match_id: u64) {
         let state = SmartCupState::state_mut();
         state.only_admin();
 
@@ -426,13 +412,12 @@ impl Service {
             final_penalty_winner,
         ))
         .expect("event");
-        SmartCupEvent::ResultFinalized(match_id, final_score, final_penalty_winner)
     }
 
     // ── Settlement ────────────────────────────────────────────────────────────
 
     #[export]
-    pub fn prepare_match_settlement(&mut self, match_id: u64) -> SmartCupEvent {
+    pub fn prepare_match_settlement(&mut self, match_id: u64) {
         let state = SmartCupState::state_mut();
         let m = state.matches.get_mut(&match_id).expect("No such match");
 
@@ -481,7 +466,7 @@ impl Service {
 
             self.emit_event(SmartCupEvent::SettlementPrepared(match_id, 0))
                 .expect("event");
-            return SmartCupEvent::SettlementPrepared(match_id, 0);
+            return;
         }
 
         m.total_winner_stake = total_winner_stake;
@@ -490,11 +475,10 @@ impl Service {
 
         self.emit_event(SmartCupEvent::SettlementPrepared(match_id, total_winner_stake))
             .expect("event");
-        SmartCupEvent::SettlementPrepared(match_id, total_winner_stake)
     }
 
     #[export]
-    pub fn claim_match_reward(&mut self, match_id: u64) -> SmartCupEvent {
+    pub fn claim_match_reward(&mut self, match_id: u64) {
         let state = SmartCupState::state_mut();
         let caller = msg::source();
 
@@ -558,13 +542,12 @@ impl Service {
 
         self.emit_event(SmartCupEvent::MatchRewardClaimed(match_id, caller, share))
             .expect("event");
-        SmartCupEvent::MatchRewardClaimed(match_id, caller, share)
     }
 
     // ── Dust sweep ────────────────────────────────────────────────────────────
 
     #[export]
-    pub fn sweep_match_dust_to_final_prize(&mut self, match_id: u64) -> SmartCupEvent {
+    pub fn sweep_match_dust_to_final_prize(&mut self, match_id: u64) {
         let state = SmartCupState::state_mut();
         state.only_admin();
 
@@ -614,7 +597,7 @@ impl Service {
             m.dust_swept = true;
             self.emit_event(SmartCupEvent::MatchDustSwept(match_id, 0))
                 .expect("event");
-            return SmartCupEvent::MatchDustSwept(match_id, 0);
+            return;
         }
 
         let dust = m.match_prize_pool.saturating_sub(m.total_claimed);
@@ -626,7 +609,6 @@ impl Service {
 
         self.emit_event(SmartCupEvent::MatchDustSwept(match_id, dust))
             .expect("event");
-        SmartCupEvent::MatchDustSwept(match_id, dust)
     }
 
     // ── Podium picks ──────────────────────────────────────────────────────────
@@ -637,7 +619,7 @@ impl Service {
         champion: String,
         runner_up: String,
         third_place: String,
-    ) -> SmartCupEvent {
+    ) {
         let state = SmartCupState::state_mut();
         let user = msg::source();
         let now = exec::block_timestamp();
@@ -671,13 +653,11 @@ impl Service {
 
         self.emit_event(SmartCupEvent::PodiumPickSubmitted(
             user,
-            champion.clone(),
-            runner_up.clone(),
-            third_place.clone(),
+            champion,
+            runner_up,
+            third_place,
         ))
         .expect("event");
-
-        SmartCupEvent::PodiumPickSubmitted(user, champion, runner_up, third_place)
     }
 
     #[export]
@@ -686,7 +666,7 @@ impl Service {
         champion: String,
         runner_up: String,
         third_place: String,
-    ) -> Vec<SmartCupEvent> {
+    ) {
         let state = SmartCupState::state_mut();
         state.only_admin();
 
@@ -701,38 +681,44 @@ impl Service {
             third_place: third_place.clone(),
         });
 
-        let mut events = Vec::new();
-        events.push(SmartCupEvent::PodiumFinalized(
+        self.emit_event(SmartCupEvent::PodiumFinalized(
             champion.clone(),
             runner_up.clone(),
             third_place.clone(),
-        ));
+        ))
+        .expect("event");
 
-        for (user, pick) in state.podium_picks.iter() {
-            let mut bonus: u32 = 0;
-            if pick.champion == champion {
-                bonus = bonus.saturating_add(20);
-            }
-            if pick.runner_up == runner_up {
-                bonus = bonus.saturating_add(10);
-            }
-            if pick.third_place == third_place {
-                bonus = bonus.saturating_add(5);
-            }
-            if bonus > 0 {
-                let pts = state.user_points.entry(*user).or_insert(0);
-                *pts = pts.saturating_add(bonus);
-                events.push(SmartCupEvent::PodiumBonusAwarded(*user, bonus));
-            }
+        // Collect bonuses first to avoid borrowing state while mutating it.
+        let bonuses: Vec<(ActorId, u32)> = state
+            .podium_picks
+            .iter()
+            .filter_map(|(user, pick)| {
+                let mut bonus: u32 = 0;
+                if pick.champion == champion {
+                    bonus = bonus.saturating_add(20);
+                }
+                if pick.runner_up == runner_up {
+                    bonus = bonus.saturating_add(10);
+                }
+                if pick.third_place == third_place {
+                    bonus = bonus.saturating_add(5);
+                }
+                if bonus > 0 { Some((*user, bonus)) } else { None }
+            })
+            .collect();
+
+        for (user, bonus) in bonuses {
+            let pts = state.user_points.entry(user).or_insert(0);
+            *pts = pts.saturating_add(bonus);
+            self.emit_event(SmartCupEvent::PodiumBonusAwarded(user, bonus))
+                .expect("event");
         }
-
-        events
     }
 
     // ── Final prize pool ──────────────────────────────────────────────────────
 
     #[export]
-    pub fn finalize_final_prize_pool(&mut self) -> SmartCupEvent {
+    pub fn finalize_final_prize_pool(&mut self) {
         let state = SmartCupState::state_mut();
         state.only_admin();
 
@@ -830,11 +816,10 @@ impl Service {
 
         self.emit_event(SmartCupEvent::FinalPrizePoolFinalized(total_allocated, dust))
             .expect("event");
-        SmartCupEvent::FinalPrizePoolFinalized(total_allocated, dust)
     }
 
     #[export]
-    pub fn claim_final_prize(&mut self) -> SmartCupEvent {
+    pub fn claim_final_prize(&mut self) {
         let state = SmartCupState::state_mut();
         let caller = msg::source();
 
@@ -872,13 +857,12 @@ impl Service {
 
         self.emit_event(SmartCupEvent::FinalPrizeClaimed(caller, amount))
             .expect("event");
-        SmartCupEvent::FinalPrizeClaimed(caller, amount)
     }
 
     // ── Admin: withdrawals ────────────────────────────────────────────────────
 
     #[export]
-    pub fn withdraw_protocol_fees(&mut self) -> SmartCupEvent {
+    pub fn withdraw_protocol_fees(&mut self) {
         let state = SmartCupState::state_mut();
         state.only_admin();
 
@@ -894,11 +878,10 @@ impl Service {
 
         self.emit_event(SmartCupEvent::ProtocolFeesWithdrawn(amt, to))
             .expect("event");
-        SmartCupEvent::ProtocolFeesWithdrawn(amt, to)
     }
 
     #[export]
-    pub fn withdraw_final_prize_rounding_dust(&mut self) -> SmartCupEvent {
+    pub fn withdraw_final_prize_rounding_dust(&mut self) {
         let state = SmartCupState::state_mut();
         state.only_admin();
 
@@ -917,13 +900,12 @@ impl Service {
 
         self.emit_event(SmartCupEvent::FinalPrizeRoundingDustWithdrawn(amt, to))
             .expect("event");
-        SmartCupEvent::FinalPrizeRoundingDustWithdrawn(amt, to)
     }
 
     /// Step 1 of 2-step admin transfer: proposes a new admin address.
     /// The proposed address must call accept_admin() to complete the transfer.
     #[export]
-    pub fn change_admin(&mut self, new_admin: ActorId) -> SmartCupEvent {
+    pub fn change_admin(&mut self, new_admin: ActorId) {
         let state = SmartCupState::state_mut();
         state.only_admin();
 
@@ -939,13 +921,12 @@ impl Service {
 
         self.emit_event(SmartCupEvent::AdminProposed(old, new_admin))
             .expect("event");
-        SmartCupEvent::AdminProposed(old, new_admin)
     }
 
     /// Step 2 of 2-step admin transfer: pending admin confirms ownership.
     /// Must be called by the address previously set via change_admin().
     #[export]
-    pub fn accept_admin(&mut self) -> SmartCupEvent {
+    pub fn accept_admin(&mut self) {
         let state = SmartCupState::state_mut();
         let caller = msg::source();
 
@@ -960,7 +941,6 @@ impl Service {
 
         self.emit_event(SmartCupEvent::AdminChanged(old, pending))
             .expect("event");
-        SmartCupEvent::AdminChanged(old, pending)
     }
 
     // ── Queries ───────────────────────────────────────────────────────────────
