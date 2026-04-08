@@ -312,6 +312,83 @@ impl Service {
             .expect("event");
     }
 
+    // ── Oracle: pull result directly from Oracle-Program ─────────────────────
+    //
+    // BolaoCore sends a cross-program query to oracle_program_id and reads the
+    // finalized result from the Oracle's own state — no data is supplied by the
+    // caller.  The security guarantee is that oracle_program_id must be in
+    // authorized_oracles (admin-controlled) and the data comes directly from
+    // that on-chain program, making the result independently verifiable.
+    //
+    // After this call the match moves to Proposed; admin still calls
+    // finalize_result() to distribute points, preserving the review window.
+
+    #[export]
+    pub async fn propose_from_oracle(
+        &mut self,
+        match_id: u64,
+        oracle_program_id: ActorId,
+    ) {
+        // 1. Verify oracle is authorized and match is still Unresolved
+        {
+            let state = SmartCupState::state_mut();
+            if !state.authorized_oracles.get(&oracle_program_id).cloned().unwrap_or(false) {
+                panic!("Oracle not authorized");
+            }
+            let m = state.matches.get(&match_id).expect("No such match");
+            if !matches!(m.result, ResultStatus::Unresolved) {
+                panic!("Result already proposed or finalized");
+            }
+        }
+
+        // 2. Build sails-rs encoded call: (service_name, method_name, params)
+        //    Mirrors the TypeScript pattern: registry.createType('(String, String, u64)', ...)
+        let payload = {
+            use sails_rs::scale_codec::Encode;
+            ("Service", "QueryMatchResult", match_id).encode()
+        };
+
+        // 3. Cross-program query to Oracle-Program
+        //    Reply format: (String, String, Option<FinalResult>)
+        let reply_bytes = msg::send_bytes_for_reply(oracle_program_id, &payload, 0, 0)
+            .expect("Failed to send query to Oracle-Program")
+            .await
+            .expect("Oracle-Program query reply failed");
+
+        // 4. Decode the sails-rs reply: (service, method, return_value)
+        //    Types come from oracle-client — same SCALE encoding, no manual mirrors needed.
+        let oracle_final = {
+            use sails_rs::scale_codec::Decode;
+            let (_svc, _method, result): (String, String, Option<oracle_client::FinalResult>) =
+                Decode::decode(&mut reply_bytes.as_slice())
+                    .expect("Failed to decode Oracle-Program reply");
+            result.expect("Oracle-Program has no finalized result for this match")
+        };
+
+        // 5. Map oracle-client types → BolaoCore types
+        let score = Score {
+            home: oracle_final.score.home,
+            away: oracle_final.score.away,
+        };
+        let penalty_winner = oracle_final.penalty_winner.map(|pw| match pw {
+            oracle_client::PenaltyWinner::Home => PenaltyWinner::Home,
+            oracle_client::PenaltyWinner::Away => PenaltyWinner::Away,
+        });
+
+        // 6. Set match to Proposed — admin reviews and calls finalize_result()
+        let state = SmartCupState::state_mut();
+        let m = state.matches.get_mut(&match_id).expect("No such match");
+        m.result = ResultStatus::Proposed { score, penalty_winner, oracle: oracle_program_id };
+
+        self.emit_event(SmartCupEvent::ResultProposed(
+            match_id,
+            score,
+            penalty_winner,
+            oracle_program_id,
+        ))
+        .expect("event");
+    }
+
     // ── Admin: result finalization ────────────────────────────────────────────
 
     #[export]
