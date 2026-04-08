@@ -8,6 +8,7 @@ import { decodeAddress, encodeAddress } from "@polkadot/util-crypto";
 import { u8aToHex } from "@polkadot/util";
 
 import { Program as OracleProgram, PenaltyWinner } from "./oracle.ts";
+import { BolaoProgram } from "./bolao.ts";
 
 /* ============================================================
    ENV
@@ -15,6 +16,7 @@ import { Program as OracleProgram, PenaltyWinner } from "./oracle.ts";
 const PORT = intEnv("PORT", 3001);
 const VARA_WS = mustEnv("VARA_WS");
 const ORACLE_PROGRAM_ID = mustEnv("ORACLE_PROGRAM_ID") as `0x${string}`;
+const BOLAO_PROGRAM_ID = (process.env.BOLAO_PROGRAM_ID ?? "") as `0x${string}`;
 const GATEWAY_SEED = mustEnv("GATEWAY_SEED");
 const SPORTS_API_KEY = process.env.SPORTS_API_KEY ?? "";
 const SPORTS_COMPETITION_CODE = process.env.SPORTS_COMPETITION_CODE ?? "WC";
@@ -120,6 +122,11 @@ function getGatewaySigner() {
 
 function getOracle(api: GearApi): OracleProgram {
   return new OracleProgram(api, ORACLE_PROGRAM_ID);
+}
+
+function getBolao(api: GearApi): BolaoProgram {
+  if (!BOLAO_PROGRAM_ID) throw new Error("BOLAO_PROGRAM_ID is not set in .env");
+  return new BolaoProgram(api, BOLAO_PROGRAM_ID);
 }
 
 function ss58PrefixFromApi(api: GearApi): number | undefined {
@@ -553,6 +560,73 @@ app.post("/oracle/feed-match/:matchId", async (req, res) => {
 });
 
 /* ============================================================
+   TEST ENDPOINT
+   ============================================================ */
+
+/**
+ * POST /test/submit-result
+ * Submits a hardcoded result (match_id=1, home=2, away=1) to Oracle-Program.
+ * Use this to test the full flow: Oracle → ConsensusReached → BolaoCore pull.
+ */
+app.post("/test/submit-result", async (_req, res) => {
+  const MATCH_ID = 1n;
+  const HOME    = 2;
+  const AWAY    = 1;
+  const PENALTY = null;
+
+  try {
+    const api    = await getApi();
+    const signer = getGatewaySigner();
+    const oracle = getOracle(api);
+
+    const tx = oracle.service.submitResult(MATCH_ID, HOME, AWAY, PENALTY);
+    const result = await sendTx(tx, signer, "test:submitResult");
+
+    console.log(`[test] submitted match ${MATCH_ID}: ${HOME}–${AWAY}`);
+    return res.json({ ok: true, match_id: 1, home: HOME, away: AWAY, penalty_winner: PENALTY, result });
+  } catch (e: any) {
+    console.error("[/test/submit-result]", e?.stack ?? e);
+    return res.status(400).json({ ok: false, error: e?.message });
+  }
+});
+
+/* ============================================================
+   BOLAO BRIDGE — pull from Oracle-Program
+   ============================================================ */
+
+/**
+ * POST /bolao/propose-from-oracle
+ * Body: { match_id: number }
+ *
+ * Triggers BolaoCore to query Oracle-Program directly and set the match
+ * result to Proposed.  BolaoCore verifies the result on-chain — this
+ * endpoint only provides the match_id trigger, no result data.
+ * Admin must still call finalize_result() to distribute points.
+ */
+app.post("/bolao/propose-from-oracle", async (req, res) => {
+  try {
+    const matchId = asMatchId(req.body?.match_id, "match_id");
+
+    const api = await getApi();
+    const signer = getGatewaySigner();
+    const bolao = getBolao(api);
+
+    const tx = bolao.service.proposeFromOracle(matchId, ORACLE_PROGRAM_ID);
+    const result = await sendTx(tx, signer, "proposeFromOracle");
+
+    return res.json({
+      ok: true,
+      match_id: Number(matchId),
+      oracle_program_id: ORACLE_PROGRAM_ID,
+      result,
+    });
+  } catch (e: any) {
+    console.error("[/bolao/propose-from-oracle]", e?.stack ?? e);
+    return res.status(400).json({ ok: false, error: e?.message });
+  }
+});
+
+/* ============================================================
    AUTO-FEEDER (background scheduler)
    Polls pending oracle matches, fetches results from sports API,
    and submits them automatically.
@@ -604,8 +678,37 @@ const server = app.listen(PORT, () => {
   console.log(`  Sports API     : football-data.org / competition=${SPORTS_COMPETITION_CODE}`);
   console.log(`  Auto-feed      : every ${AUTO_FEED_INTERVAL_MS / 1000}s`);
 
-  // Warm up GearApi connection
-  getApi().catch((e) => console.error("[boot] GearApi init failed:", e?.message));
+  // Warm up GearApi connection and start ConsensusReached bridge
+  getApi()
+    .then((api) => {
+      console.log("[boot] GearApi ready — starting ConsensusReached bridge");
+
+      if (!BOLAO_PROGRAM_ID) {
+        console.warn("[boot] BOLAO_PROGRAM_ID not set — bridge disabled");
+        return;
+      }
+
+      const oracle = getOracle(api);
+      const bolao = getBolao(api);
+      const signer = getGatewaySigner();
+
+      // Listen for Oracle ConsensusReached events and forward to BolaoCore
+      oracle.service.subscribeToConsensusReachedEvent(async (matchId, _score, _penaltyWinner) => {
+        const numId = Number(matchId);
+        console.log(`[bridge] ConsensusReached for match ${numId} — triggering BolaoCore pull`);
+        try {
+          const tx = bolao.service.proposeFromOracle(BigInt(matchId as any), ORACLE_PROGRAM_ID);
+          await sendTx(tx, signer, `bridge:proposeFromOracle:${numId}`);
+          console.log(`[bridge] ✓ match ${numId} proposed in BolaoCore from Oracle`);
+        } catch (e: any) {
+          console.error(`[bridge] match ${numId} propose failed:`, e?.message);
+          console.warn(`[bridge] retry manually: POST /bolao/propose-from-oracle { match_id: ${numId} }`);
+        }
+      });
+
+      console.log("[boot] ConsensusReached bridge active");
+    })
+    .catch((e) => console.error("[boot] GearApi init failed:", e?.message));
 
   // Start auto-feed scheduler
   if (AUTO_FEED_INTERVAL_MS > 0) {
