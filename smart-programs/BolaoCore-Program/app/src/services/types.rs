@@ -37,6 +37,7 @@ pub enum ResultStatus {
         score: Score,
         penalty_winner: Option<PenaltyWinner>,
         oracle: ActorId,
+        proposed_at: u64,
     },
     Finalized {
         score: Score,
@@ -80,6 +81,7 @@ pub struct Match {
     pub total_claimed: u128,
     pub settlement_prepared: bool,
     pub dust_swept: bool,
+    pub finalized_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Encode, Decode, TypeInfo)]
