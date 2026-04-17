@@ -10,11 +10,14 @@ participants place one bet per match, earn points based on prediction accuracy, 
 
 No hidden odds, no custodial payouts. Bets, results, and claims are recorded on-chain, and winners claim rewards directly.
 
+---
+
 ## Table of Contents
 
 - [Overview](#overview)
 - [Architecture](#architecture)
 - [Fee Model](#fee-model)
+- [Design Patterns](#design-patterns)
 - [Tournament Lifecycle](#tournament-lifecycle)
 - [Match State Machine](#match-state-machine)
 - [Module Reference](#module-reference)
@@ -67,39 +70,86 @@ Every bet is split into three portions at the moment it is placed:
 
 | Destination      | Share | Constant           |
 |------------------|-------|--------------------|
-| Protocol fees    | 5 %   | `PROTOCOL_FEE_BPS` |
-| Final prize pool | 10 %  | `FINAL_PRIZE_BPS`  |
-| Match prize pool | 85 %  | (remainder)        |
+| Protocol fees    | 5%    | `PROTOCOL_FEE_BPS` |
+| Final prize pool | 10%   | `FINAL_PRIZE_BPS`  |
+| Match prize pool | 85%   | (remainder)        |
+
+**Match prize pool** is distributed proportionally to winners based on their stake. Unclaimed remainder is swept to the final prize pool after all winners claim or after the claim deadline expires.
 
 **Final prize distribution**: top 5 by points at tournament end (ties share equally):
 
 | Position | Share |
 |----------|-------|
-| 1st      | 45 %  |
-| 2nd      | 25 %  |
-| 3rd      | 15 %  |
-| 4th      | 10 %  |
-| 5th      | 5 %   |
+| 1st      | 45%   |
+| 2nd      | 25%   |
+| 3rd      | 15%   |
+| 4th      | 10%   |
+| 5th      | 5%    |
 
 Rounding dust from integer division is automatically swept to admin when `finalize_final_prize_pool` is called.
+
+---
+
+## Design Patterns
+
+### 1. Optimistic Execution with Challenge Window
+
+Oracle result proposals are not applied immediately. Instead, they enter a challenge window during which the admin can cancel an incorrect proposal. After the window expires, `finalize_result()` becomes permissionless.
+
+```text
+Oracle proposes result
+        |
+        v
+  [Proposed state]
+  challenge_expires_at = proposed_at + CHALLENGE_WINDOW_MS
+        |
+        |- Admin calls cancel_proposed_result() -> back to Unresolved
+        |
+        \- Anyone calls finalize_result() -> Finalized after the challenge window
+```
+
+This removes the admin as a liveness dependency while preserving a safety window for incorrect oracle data.
+
+---
+
+### 2. Fused Finalization + Settlement
+
+`finalize_result()` performs two operations in a single transaction and a single O(n) loop over participants:
+
+1. Awards points based on prediction accuracy.
+2. Calculates `total_winner_stake` and marks the match ready for claims.
+
+There is no separate `prepare_match_settlement()` call anymore. Winners can claim their rewards immediately after finalization.
+
+---
+
+### 3. Permissionless Sweep with Claim Deadline
+
+`sweep_match_dust_to_final_prize()` is permissionless. It enforces a claim window after finalization:
+
+- Before the deadline: sweep requires all eligible winners to have claimed first.
+- After the deadline: sweep executes unconditionally and the remainder flows to the final prize pool.
+
+This guarantees tournament completion even if some winners stay inactive.
 
 ---
 
 ## Tournament Lifecycle
 
 ```text
-1.  register_phase()                 [admin]   Define phases (Group Stage, R16, QF, SF, Final...)
-2.  register_match()                 [admin]   Assign matches to phases
-3.  place_bet()                      [user]    Open until 10 min before kick-off
-4.  submit_podium_pick()             [user]    Open until first R32 kick-off
-5.  propose_result()                 [oracle]  After match ends
-6.  finalize_result()                [admin]   Confirm oracle proposal; award match points
-7.  prepare_match_settlement()       [anyone]  Calculate total winner stake
-8.  claim_match_reward()             [winner]  Claim proportional share of match pool
-9.  sweep_match_dust_to_final_prize()[admin]   Move unclaimed remainder to final prize pool
-10. finalize_podium()                [admin]   Set official podium; award bonus points
-11. finalize_final_prize_pool()      [admin]   Lock pool; allocate shares to top 5
-12. claim_final_prize()              [user]    Claim individual final prize allocation
+1.  register_phase()                   [admin]      Define phases (Group Stage, R16, QF, SF, Final...)
+2.  register_match()                   [admin]      Assign matches to phases with kick-off times
+3.  place_bet()                        [user]       Open until 10 min before kick-off
+4.  submit_podium_pick()               [user]       Open until first R32 kick-off
+5.  propose_result()                   [oracle]     After match ends - starts challenge window
+6.  propose_from_oracle()              [oracle]     Optional async oracle-program route
+7.  cancel_proposed_result()           [admin]      Optional - only within challenge window
+8.  finalize_result()                  [anyone]     After challenge window - awards points + settles match
+9.  claim_match_reward()               [winner]     Claim proportional share of match pool
+10. sweep_match_dust_to_final_prize()  [anyone]     After all winners claim or after deadline
+11. finalize_podium()                  [admin]      Set official podium; award bonus points
+12. finalize_final_prize_pool()        [admin]      Lock pool; allocate shares to top 5
+13. claim_final_prize()                [user]       Claim individual final prize allocation
 ```
 
 ---
@@ -109,18 +159,22 @@ Rounding dust from integer division is automatically swept to admin when `finali
 ```text
 Unresolved
     |
-    |- propose_result()              [oracle]  -> Proposed
-    |
-Proposed
-    |
-    |- cancel_proposed_result()      [admin]   -> Unresolved
-    |- finalize_result()             [admin]   -> Finalized
-    |
-Finalized
-    |
-    |- prepare_match_settlement()    [anyone]
-    |- claim_match_reward()          [winner per wallet]
-    \- sweep_match_dust_to_final_prize() [admin, after all winners claim]
+    \- propose_result() / propose_from_oracle() [oracle]
+            |
+            v
+        Proposed { score, penalty_winner, oracle, proposed_at }
+            |
+            |- cancel_proposed_result() [admin, within challenge window] -> Unresolved
+            |
+            \- finalize_result() [anyone, after challenge window]
+                    |
+                    v
+                Finalized { score, penalty_winner }
+                    |
+                    |- claim_match_reward() [winner]
+                    \- sweep_match_dust_to_final_prize() [anyone]
+                        |- before deadline: requires all winners claimed
+                        \- after deadline: unconditional sweep
 ```
 
 ---
@@ -129,17 +183,19 @@ Finalized
 
 ### `constants.rs`
 
-| Constant                   | Value                          | Purpose                                          |
-|----------------------------|--------------------------------|--------------------------------------------------|
-| `PROTOCOL_FEE_BPS`         | 500 (5 %)                      | Protocol fee slice of every bet                  |
-| `FINAL_PRIZE_BPS`          | 1 000 (10 %)                   | Final prize pool slice of every bet              |
-| `BPS_DENOMINATOR`          | 10 000                         | Basis points denominator                         |
-| `BET_CLOSE_WINDOW_SECONDS` | 600 (10 min)                   | Betting closes this many seconds before kick-off |
-| `FINAL_PRIZE_TOP5_BPS`     | [4500, 2500, 1500, 1000, 500]  | Final prize shares for positions 1-5             |
-| `MIN_BET_PLANCK`           | 3 x 10^12 (3 VARA)             | Minimum bet; prevents zero-fee rounding attacks  |
-| `MAX_PHASE_NAME_LEN`       | 64 bytes                       | Maximum phase name string length                 |
-| `MAX_POINTS_WEIGHT`        | 20                             | Maximum `points_weight` per phase                |
-| `MAX_TEAM_NAME_LEN`        | 50 bytes                       | Maximum team / podium pick name string length    |
+| Constant                   | Value                           | Purpose                                              |
+|----------------------------|---------------------------------|------------------------------------------------------|
+| `PROTOCOL_FEE_BPS`         | 500 (5%)                        | Protocol fee slice of every bet                      |
+| `FINAL_PRIZE_BPS`          | 1,000 (10%)                     | Final prize pool slice of every bet                  |
+| `BPS_DENOMINATOR`          | 10,000                          | Basis points denominator                             |
+| `BET_CLOSE_WINDOW_SECONDS` | 600 (10 min)                    | Betting closes this many seconds before kick-off     |
+| `FINAL_PRIZE_TOP5_BPS`     | [4500, 2500, 1500, 1000, 500]   | Final prize shares for positions 1-5                 |
+| `MIN_BET_PLANCK`           | 3 x 10^12 (3 VARA)              | Minimum bet; prevents zero-fee rounding attacks      |
+| `MAX_PHASE_NAME_LEN`       | 64 bytes                        | Maximum phase name string length                     |
+| `MAX_POINTS_WEIGHT`        | 20                              | Maximum `points_weight` per phase                    |
+| `MAX_TEAM_NAME_LEN`        | 50 bytes                        | Maximum team / podium pick name string length        |
+| `CHALLENGE_WINDOW_MS`      | 120,000 ms in current branch    | Optimistic execution challenge window                |
+| `CLAIM_DEADLINE_MS`        | 240,000 ms in current branch    | Claim deadline; after this, sweep is unconditional   |
 
 ### `types.rs`
 
@@ -147,9 +203,9 @@ Finalized
 |------|-------------|
 | `Score` | `{ home: u8, away: u8 }` - goals capped at 20 in validation |
 | `PenaltyWinner` | `Home \| Away` - required only for knockout draws |
-| `ResultStatus` | `Unresolved \| Proposed { score, penalty_winner, oracle } \| Finalized { score, penalty_winner }` |
-| `Match` | Full match record including prize pool accounting fields |
-| `Bet` | Per-user bet; `stake_in_match_pool` is the 85 % slice |
+| `ResultStatus` | `Unresolved \| Proposed { score, penalty_winner, oracle, proposed_at } \| Finalized { score, penalty_winner }` |
+| `Match` | Full match record including prize pool accounting fields and `finalized_at` for deadline tracking |
+| `Bet` | Per-user bet; `stake_in_match_pool` is the 85% slice |
 | `PhaseConfig` | `{ name, start_time, end_time, points_weight }` - `points_weight > 1` means knockout |
 | `PodiumPick` | User's pre-tournament champion/runner_up/third_place prediction |
 | `PodiumResult` | Official final podium set by admin |
@@ -164,11 +220,11 @@ Finalized
 | `MatchRegistered(id, phase, home, away, kick_off)` | `register_match` |
 | `OracleAuthorized(oracle, bool)` | `set_oracle_authorized` |
 | `BetAccepted(user, match_id, score, pen, stake)` | `place_bet` |
-| `ResultProposed(match_id, score, pen, oracle)` | `propose_result` |
+| `ResultProposed(match_id, score, pen, oracle, challenge_expires_at)` | `propose_result`, `propose_from_oracle` |
 | `ResultProposalCancelled(match_id, oracle)` | `cancel_proposed_result` |
 | `ResultFinalized(match_id, score, pen)` | `finalize_result` |
 | `PointsAwarded(user, match_id, points)` | `finalize_result` (per qualifying bet) |
-| `SettlementPrepared(match_id, total_winner_stake)` | `prepare_match_settlement` |
+| `SettlementPrepared(match_id, total_winner_stake)` | `finalize_result` (fused) |
 | `MatchRewardClaimed(match_id, user, amount)` | `claim_match_reward` |
 | `MatchDustSwept(match_id, dust)` | `sweep_match_dust_to_final_prize` |
 | `PodiumPickSubmitted(user, c, ru, tp)` | `submit_podium_pick` |
@@ -218,9 +274,7 @@ Finalized
 | `set_oracle_authorized(oracle, bool)` | Grants or revokes oracle rights |
 | `register_phase(name, start, end, weight)` | Defines a tournament phase |
 | `register_match(phase, home, away, kick_off)` | Registers a match in a phase |
-| `cancel_proposed_result(match_id)` | Reverts an incorrect oracle proposal to Unresolved |
-| `finalize_result(match_id)` | Accepts the oracle proposal; awards points to bettors |
-| `sweep_match_dust_to_final_prize(match_id)` | Moves unclaimed match pool remainder to final prize |
+| `cancel_proposed_result(match_id)` | Reverts an oracle proposal - only within the challenge window |
 | `finalize_podium(champion, runner_up, third)` | Sets official podium; awards bonus points |
 | `finalize_final_prize_pool()` | Locks final prize; distributes allocations to top 5 |
 | `withdraw_protocol_fees()` | Withdraws accumulated protocol fees to admin wallet |
@@ -231,7 +285,8 @@ Finalized
 
 | Function | Description |
 |----------|-------------|
-| `propose_result(match_id, score, pen)` | Proposes the final result for a match |
+| `propose_result(match_id, score, pen)` | Proposes the final result; starts the challenge window |
+| `propose_from_oracle(match_id, oracle_program_id)` | Cross-program async query to Oracle-Program; starts the challenge window |
 
 ### User
 
@@ -243,11 +298,12 @@ Finalized
 | `claim_match_reward(match_id)` | Claims proportional share of the match prize pool |
 | `claim_final_prize()` | Claims allocated final prize share |
 
-### Anyone
+### Anyone (permissionless)
 
 | Function | Description |
 |----------|-------------|
-| `prepare_match_settlement(match_id)` | Calculates total winner stake for a finalized match |
+| `finalize_result(match_id)` | Finalizes result + settles match in one call after the challenge window |
+| `sweep_match_dust_to_final_prize(match_id)` | Sweeps remaining pool to final prize after all claims, or after the deadline |
 
 ### Queries (read-only)
 
@@ -316,18 +372,28 @@ It consumes Lens for `timeToClose`, `oracleHealth`, participant and match pagina
 
 ## Security Properties
 
-**Access control**
-- `only_admin()` and `only_oracle()` guards on all privileged functions.
+### Access control
+
+- `only_admin()` guard on privileged operations.
+- `only_oracle()` guard on result proposals.
 - Admin transfer is a two-step process (`change_admin` -> `accept_admin`), preventing permanent lockout from a typo or wrong address.
+- `cancel_proposed_result()` is limited to the challenge window.
 
-**CEI pattern (Checks-Effects-Interactions)**
-- All state mutations (marking `claimed = true`, decrementing balances) happen before any `msg::send*` call, preventing reentrancy.
+### CEI pattern (Checks-Effects-Interactions)
 
-**Arithmetic safety**
+All state mutations happen before any `msg::send*` call, preventing reentrancy:
+
+- `claim_match_reward()` sets `bet.claimed = true` before sending funds.
+- `claim_final_prize()` sets `final_prize_claimed[caller] = true` before sending funds.
+- `finalize_final_prize_pool()` zeroes `final_prize_accumulated` before auto-sweeping dust.
+
+### Arithmetic safety
+
 - All additions and multiplications use `saturating_*`.
-- All divisions use `checked_div` with explicit panics on a zero denominator.
+- All divisions use `checked_div` with explicit panics on zero denominator.
 
-**Input validation**
+### Input validation
+
 - Minimum bet: 3 VARA, ensuring protocol fee and final prize cut are never rounded to zero.
 - String lengths: phase names <= 64 bytes, team/pick names <= 50 bytes, preventing storage bloat.
 - Score values: home and away goals capped at 20.
@@ -335,16 +401,20 @@ It consumes Lens for `timeToClose`, `oracleHealth`, participant and match pagina
 - `kick_off` must be strictly in the future at match registration time.
 - Penalty winner is required for knockout draws and forbidden otherwise.
 
-**Sweep guard**
-- `sweep_match_dust_to_final_prize` verifies no eligible unclaimed bets remain before sweeping.
+### Sweep guard
 
-**No-winner path**
-- If `prepare_match_settlement` finds zero winner stake, the entire match pool is redirected to the final prize pool.
+`sweep_match_dust_to_final_prize()` verifies no eligible unclaimed bets remain before sweeping, unless the claim deadline has passed.
 
-**Leaderboard**
-- Only wallets that placed at least one bet with non-zero stake qualify for final prize distribution. Sorting is `O(n log n)`.
+### No-winner path
 
-**Operational controls**
+If `finalize_result()` finds zero winner stake, the entire match pool is redirected to the final prize pool in the same flow.
+
+### Leaderboard
+
+Only wallets that placed at least one bet with non-zero stake qualify for final prize distribution. Sorting is `O(n log n)`.
+
+### Operational controls
+
 - Timelocks: 24h for module, parameter, and role changes; 48h for final prize root and window changes.
 - Guards: max oracle age, dispute window, and anti-delay kick-off protection after bets.
 - Rescues: paused-only; never USDC (core) and never LINK (oracle module).

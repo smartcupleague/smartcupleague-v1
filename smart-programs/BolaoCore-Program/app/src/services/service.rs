@@ -4,6 +4,7 @@ use super::constants::{
     PROTOCOL_FEE_BPS, FINAL_PRIZE_BPS, BPS_DENOMINATOR,
     BET_CLOSE_WINDOW_SECONDS, MIN_BET_PLANCK,
     MAX_PHASE_NAME_LEN, MAX_POINTS_WEIGHT, MAX_TEAM_NAME_LEN,
+    CHALLENGE_WINDOW_MS, CLAIM_DEADLINE_MS,
 };
 use super::types::{
     Score, PenaltyWinner, ResultStatus, Match, Bet, UserBetRecord,
@@ -141,6 +142,7 @@ impl Service {
             total_claimed: 0,
             settlement_prepared: false,
             dust_swept: false,
+            finalized_at: None,
         };
 
         state.matches.insert(match_id, m);
@@ -270,6 +272,7 @@ impl Service {
         state.only_oracle();
 
         let oracle = msg::source();
+        let proposed_at = exec::block_timestamp();
         let m = state.matches.get_mut(&match_id).expect("No such match");
 
         match &m.result {
@@ -278,6 +281,7 @@ impl Service {
                     score: final_score,
                     penalty_winner,
                     oracle,
+                    proposed_at,
                 };
             }
             _ => panic!("Result already proposed/finalized"),
@@ -288,6 +292,7 @@ impl Service {
             final_score,
             penalty_winner,
             oracle,
+            proposed_at.saturating_add(CHALLENGE_WINDOW_MS),
         ))
         .expect("event");
     }
@@ -301,7 +306,13 @@ impl Service {
         let m = state.matches.get_mut(&match_id).expect("No such match");
 
         let oracle = match &m.result {
-            ResultStatus::Proposed { oracle, .. } => *oracle,
+            ResultStatus::Proposed { oracle, proposed_at, .. } => {
+                let expires_at = proposed_at.saturating_add(CHALLENGE_WINDOW_MS);
+                if exec::block_timestamp() >= expires_at {
+                    panic!("Challenge window expired — result is now final");
+                }
+                *oracle
+            },
             ResultStatus::Unresolved => panic!("No proposal to cancel"),
             ResultStatus::Finalized { .. } => panic!("Result already finalized — cannot cancel"),
         };
@@ -312,12 +323,81 @@ impl Service {
             .expect("event");
     }
 
-    // ── Admin: result finalization ────────────────────────────────────────────
+    // ── Oracle: pull result directly from Oracle-Program ─────────────────────
+    #[export]
+    pub async fn propose_from_oracle(
+        &mut self,
+        match_id: u64,
+        oracle_program_id: ActorId,
+    ) {
+        // 1. Verify oracle is authorized and match is still Unresolved
+        {
+            let state = SmartCupState::state_mut();
+            if !state.authorized_oracles.get(&oracle_program_id).cloned().unwrap_or(false) {
+                panic!("Oracle not authorized");
+            }
+            let m = state.matches.get(&match_id).expect("No such match");
+            if !matches!(m.result, ResultStatus::Unresolved) {
+                panic!("Result already proposed or finalized");
+            }
+        }
+
+        // 2. Build sails-rs encoded call: (service_name, method_name, params)
+        //    Mirrors the TypeScript pattern: registry.createType('(String, String, u64)', ...)
+        let payload = {
+            use sails_rs::scale_codec::Encode;
+            ("Service", "QueryMatchResult", match_id).encode()
+        };
+
+        // 3. Cross-program query to Oracle-Program
+        //    Reply format: (String, String, Option<FinalResult>)
+        let reply_bytes = msg::send_bytes_for_reply(oracle_program_id, &payload, 0, 0)
+            .expect("Failed to send query to Oracle-Program")
+            .await
+            .expect("Oracle-Program query reply failed");
+
+        // 4. Decode the sails-rs reply: (service, method, return_value)
+        //    Types come from oracle-client — same SCALE encoding, no manual mirrors needed.
+        let oracle_final = {
+            use sails_rs::scale_codec::Decode;
+            let (_svc, _method, result): (String, String, Option<oracle_client::FinalResult>) =
+                Decode::decode(&mut reply_bytes.as_slice())
+                    .expect("Failed to decode Oracle-Program reply");
+            result.expect("Oracle-Program has no finalized result for this match")
+        };
+
+        // 5. Map oracle-client types → BolaoCore types
+        let score = Score {
+            home: oracle_final.score.home,
+            away: oracle_final.score.away,
+        };
+        let penalty_winner = oracle_final.penalty_winner.map(|pw| match pw {
+            oracle_client::PenaltyWinner::Home => PenaltyWinner::Home,
+            oracle_client::PenaltyWinner::Away => PenaltyWinner::Away,
+        });
+
+        // 6. Set match to Proposed — challenge window begins now
+        let proposed_at = exec::block_timestamp();
+        let state = SmartCupState::state_mut();
+        let m = state.matches.get_mut(&match_id).expect("No such match");
+        m.result = ResultStatus::Proposed { score, penalty_winner, oracle: oracle_program_id, proposed_at };
+
+        self.emit_event(SmartCupEvent::ResultProposed(
+            match_id,
+            score,
+            penalty_winner,
+            oracle_program_id,
+            proposed_at.saturating_add(CHALLENGE_WINDOW_MS),
+        ))
+        .expect("event");
+    }
+
+    // ── Result finalization + settlement (fused) ─────────────────────────────
 
     #[export]
     pub fn finalize_result(&mut self, match_id: u64) {
         let state = SmartCupState::state_mut();
-        state.only_admin();
+        // Permissionless after challenge window — no only_admin() guard
 
         let m = state.matches.get_mut(&match_id).expect("No such match");
 
@@ -326,7 +406,14 @@ impl Service {
                 score,
                 penalty_winner,
                 oracle: _,
-            } => (*score, *penalty_winner),
+                proposed_at,
+            } => {
+                let expires_at = proposed_at.saturating_add(CHALLENGE_WINDOW_MS);
+                if exec::block_timestamp() < expires_at {
+                    panic!("Challenge window not expired yet");
+                }
+                (*score, *penalty_winner)
+            },
             _ => panic!("Not proposed or already finalized"),
         };
 
@@ -361,6 +448,9 @@ impl Service {
         } else {
             outcome(final_score)
         };
+
+        // Combined loop: award points + accumulate winner stake in one pass
+        let mut total_winner_stake: u128 = 0;
 
         for participant in m.participants.iter() {
             if let Some(bet) = state.bets.get(&(*participant, match_id)) {
@@ -403,8 +493,32 @@ impl Service {
                     ))
                     .expect("event");
                 }
+
+                // Settlement: accumulate winner stake in the same pass
+                if eligible_for_payout(
+                    bet.score,
+                    bet.penalty_winner,
+                    final_score,
+                    final_penalty_winner,
+                    phase_weight,
+                ) {
+                    total_winner_stake =
+                        total_winner_stake.saturating_add(bet.stake_in_match_pool);
+                }
             }
         }
+
+        // Settle immediately — no separate prepare_match_settlement() needed
+        if total_winner_stake == 0 {
+            state.final_prize_accumulated = state
+                .final_prize_accumulated
+                .saturating_add(m.match_prize_pool);
+            m.match_prize_pool = 0;
+            m.dust_swept = true;
+        }
+        m.total_winner_stake = total_winner_stake;
+        m.settlement_prepared = true;
+        m.finalized_at = Some(exec::block_timestamp());
 
         self.emit_event(SmartCupEvent::ResultFinalized(
             match_id,
@@ -412,70 +526,12 @@ impl Service {
             final_penalty_winner,
         ))
         .expect("event");
-    }
-
-    // ── Settlement ────────────────────────────────────────────────────────────
-
-    #[export]
-    pub fn prepare_match_settlement(&mut self, match_id: u64) {
-        let state = SmartCupState::state_mut();
-        let m = state.matches.get_mut(&match_id).expect("No such match");
-
-        if m.settlement_prepared {
-            panic!("Settlement already prepared");
-        }
-
-        let (final_score, final_penalty_winner) = match m.result {
-            ResultStatus::Finalized { score, penalty_winner } => (score, penalty_winner),
-            _ => panic!("Match not finalized"),
-        };
-
-        let phase_weight = state
-            .phases
-            .get(&m.phase)
-            .map(|p| p.points_weight)
-            .unwrap_or(1);
-
-        let mut total_winner_stake: u128 = 0;
-        for participant in m.participants.iter() {
-            if let Some(bet) = state.bets.get(&(*participant, match_id)) {
-                let eligible = eligible_for_payout(
-                    bet.score,
-                    bet.penalty_winner,
-                    final_score,
-                    final_penalty_winner,
-                    phase_weight,
-                );
-                if eligible {
-                    total_winner_stake =
-                        total_winner_stake.saturating_add(bet.stake_in_match_pool);
-                }
-            }
-        }
-
-        if total_winner_stake == 0 {
-            state.final_prize_accumulated = state
-                .final_prize_accumulated
-                .saturating_add(m.match_prize_pool);
-
-            m.match_prize_pool = 0;
-            m.total_winner_stake = 0;
-            m.total_claimed = 0;
-            m.settlement_prepared = true;
-            m.dust_swept = true;
-
-            self.emit_event(SmartCupEvent::SettlementPrepared(match_id, 0))
-                .expect("event");
-            return;
-        }
-
-        m.total_winner_stake = total_winner_stake;
-        m.total_claimed = 0;
-        m.settlement_prepared = true;
 
         self.emit_event(SmartCupEvent::SettlementPrepared(match_id, total_winner_stake))
             .expect("event");
     }
+
+    // ── Settlement ────────────────────────────────────────────────────────────
 
     #[export]
     pub fn claim_match_reward(&mut self, match_id: u64) {
@@ -484,9 +540,6 @@ impl Service {
 
         let m = state.matches.get_mut(&match_id).expect("No such match");
 
-        if !m.settlement_prepared {
-            panic!("Settlement not prepared");
-        }
         if m.match_prize_pool == 0 || m.total_winner_stake == 0 {
             panic!("No rewards for this match");
         }
@@ -549,9 +602,8 @@ impl Service {
     #[export]
     pub fn sweep_match_dust_to_final_prize(&mut self, match_id: u64) {
         let state = SmartCupState::state_mut();
-        state.only_admin();
+        // Permissionless — no only_admin() guard
 
-        
         {
             let m = state.matches.get(&match_id).expect("No such match");
 
@@ -563,31 +615,39 @@ impl Service {
             }
 
             if m.match_prize_pool > 0 {
-                let (final_score, final_penalty_winner) = match m.result {
-                    ResultStatus::Finalized { score, penalty_winner } => (score, penalty_winner),
-                    _ => panic!("Match not finalized"),
-                };
-                let phase_weight = state
-                    .phases
-                    .get(&m.phase)
-                    .map(|p| p.points_weight)
-                    .unwrap_or(1);
+                let deadline_passed = m.finalized_at
+                    .map(|t| exec::block_timestamp() >= t.saturating_add(CLAIM_DEADLINE_MS))
+                    .unwrap_or(false);
 
-                for participant in m.participants.iter() {
-                    if let Some(bet) = state.bets.get(&(*participant, match_id)) {
-                        if !bet.claimed
-                            && eligible_for_payout(
-                                bet.score,
-                                bet.penalty_winner,
-                                final_score,
-                                final_penalty_winner,
-                                phase_weight,
-                            )
-                        {
-                            panic!("Unclaimed eligible bets remain — sweep after all winners have claimed");
+                // Before deadline: guard requires all winners to have claimed
+                if !deadline_passed {
+                    let (final_score, final_penalty_winner) = match m.result {
+                        ResultStatus::Finalized { score, penalty_winner } => (score, penalty_winner),
+                        _ => panic!("Match not finalized"),
+                    };
+                    let phase_weight = state
+                        .phases
+                        .get(&m.phase)
+                        .map(|p| p.points_weight)
+                        .unwrap_or(1);
+
+                    for participant in m.participants.iter() {
+                        if let Some(bet) = state.bets.get(&(*participant, match_id)) {
+                            if !bet.claimed
+                                && eligible_for_payout(
+                                    bet.score,
+                                    bet.penalty_winner,
+                                    final_score,
+                                    final_penalty_winner,
+                                    phase_weight,
+                                )
+                            {
+                                panic!("Unclaimed eligible bets remain — wait for 72h claim deadline");
+                            }
                         }
                     }
                 }
+                // After deadline: sweep unconditionally, forfeiting unclaimed rewards
             }
         }
 
@@ -805,10 +865,10 @@ impl Service {
         state.final_prize_accumulated = 0;
 
         if dust > 0 {
-            let admin = state.admin;
+            let caller = msg::source();
             state.final_prize_rounding_dust = 0;
-            msg::send(admin, (), dust).expect("Dust auto-sweep failed");
-            self.emit_event(SmartCupEvent::FinalPrizeRoundingDustWithdrawn(dust, admin))
+            msg::send(caller, (), dust).expect("Dust auto-sweep failed");
+            self.emit_event(SmartCupEvent::FinalPrizeRoundingDustWithdrawn(dust, caller))
                 .expect("event");
         } else {
             state.final_prize_rounding_dust = 0;
@@ -866,7 +926,7 @@ impl Service {
         let state = SmartCupState::state_mut();
         state.only_admin();
 
-        let to = state.admin;
+        let to = msg::source();
         let amt = state.protocol_fee_accumulated;
 
         if amt == 0 {
@@ -894,7 +954,7 @@ impl Service {
             panic!("No final prize rounding dust");
         }
 
-        let to = state.admin;
+        let to = msg::source();
         state.final_prize_rounding_dust = 0;
         msg::send(to, (), amt).expect("Final prize rounding dust transfer failed");
 
@@ -902,44 +962,45 @@ impl Service {
             .expect("event");
     }
 
-    /// Step 1 of 2-step admin transfer: proposes a new admin address.
-    /// The proposed address must call accept_admin() to complete the transfer.
+    /// Adds a new admin to the admins list. Any existing admin can call this.
     #[export]
-    pub fn change_admin(&mut self, new_admin: ActorId) {
+    pub fn add_admin(&mut self, new_admin: ActorId) {
         let state = SmartCupState::state_mut();
         state.only_admin();
 
         if new_admin == ActorId::zero() {
-            panic!("Invalid new admin");
+            panic!("Invalid admin address");
         }
-        if new_admin == state.admin {
-            panic!("Proposed admin is the same as current admin");
+        if state.admins.contains(&new_admin) {
+            panic!("Already an admin");
         }
 
-        let old = state.admin;
-        state.pending_admin = Some(new_admin);
+        state.admins.push(new_admin);
 
-        self.emit_event(SmartCupEvent::AdminProposed(old, new_admin))
+        self.emit_event(SmartCupEvent::AdminAdded(new_admin))
             .expect("event");
     }
 
-    /// Step 2 of 2-step admin transfer: pending admin confirms ownership.
-    /// Must be called by the address previously set via change_admin().
+    /// Removes an admin from the admins list. Any existing admin can call this.
+    /// Panics if trying to remove the last admin.
     #[export]
-    pub fn accept_admin(&mut self) {
+    pub fn remove_admin(&mut self, admin_to_remove: ActorId) {
         let state = SmartCupState::state_mut();
-        let caller = msg::source();
+        state.only_admin();
 
-        let pending = state.pending_admin.expect("No pending admin proposal");
-        if caller != pending {
-            panic!("Only the proposed admin can accept");
+        if state.admins.len() <= 1 {
+            panic!("Cannot remove last admin");
         }
 
-        let old = state.admin;
-        state.admin = pending;
-        state.pending_admin = None;
+        let pos = state
+            .admins
+            .iter()
+            .position(|a| *a == admin_to_remove)
+            .expect("Address is not an admin");
 
-        self.emit_event(SmartCupEvent::AdminChanged(old, pending))
+        state.admins.remove(pos);
+
+        self.emit_event(SmartCupEvent::AdminRemoved(admin_to_remove))
             .expect("event");
     }
 

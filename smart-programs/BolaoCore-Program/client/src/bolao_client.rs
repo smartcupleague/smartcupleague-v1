@@ -78,10 +78,11 @@ pub mod service {
             predicted_score: Score,
             predicted_penalty_winner: Option<PenaltyWinner>,
         ) -> sails_rs::client::PendingCall<io::PlaceBet, Self::Env>;
-        fn prepare_match_settlement(
+        fn propose_from_oracle(
             &mut self,
             match_id: u64,
-        ) -> sails_rs::client::PendingCall<io::PrepareMatchSettlement, Self::Env>;
+            oracle_program_id: ActorId,
+        ) -> sails_rs::client::PendingCall<io::ProposeFromOracle, Self::Env>;
         fn propose_result(
             &mut self,
             match_id: u64,
@@ -205,11 +206,12 @@ pub mod service {
         ) -> sails_rs::client::PendingCall<io::PlaceBet, Self::Env> {
             self.pending_call((match_id, predicted_score, predicted_penalty_winner))
         }
-        fn prepare_match_settlement(
+        fn propose_from_oracle(
             &mut self,
             match_id: u64,
-        ) -> sails_rs::client::PendingCall<io::PrepareMatchSettlement, Self::Env> {
-            self.pending_call((match_id,))
+            oracle_program_id: ActorId,
+        ) -> sails_rs::client::PendingCall<io::ProposeFromOracle, Self::Env> {
+            self.pending_call((match_id, oracle_program_id))
         }
         fn propose_result(
             &mut self,
@@ -320,7 +322,7 @@ pub mod service {
         sails_rs::io_struct_impl!(FinalizePodium (champion: String, runner_up: String, third_place: String) -> ());
         sails_rs::io_struct_impl!(FinalizeResult (match_id: u64) -> ());
         sails_rs::io_struct_impl!(PlaceBet (match_id: u64, predicted_score: super::Score, predicted_penalty_winner: Option<super::PenaltyWinner>) -> ());
-        sails_rs::io_struct_impl!(PrepareMatchSettlement (match_id: u64) -> ());
+        sails_rs::io_struct_impl!(ProposeFromOracle (match_id: u64, oracle_program_id: ActorId) -> ());
         sails_rs::io_struct_impl!(ProposeResult (match_id: u64, final_score: super::Score, penalty_winner: Option<super::PenaltyWinner>) -> ());
         sails_rs::io_struct_impl!(RegisterMatch (phase: String, home: String, away: String, kick_off: u64) -> ());
         sails_rs::io_struct_impl!(RegisterPhase (phase_name: String, start_time: u64, end_time: u64, points_weight: u32) -> ());
@@ -348,7 +350,7 @@ pub mod service {
             MatchRegistered((u64, String, String, String, u64)),
             OracleAuthorized((ActorId, bool)),
             BetAccepted((ActorId, u64, Score, Option<PenaltyWinner>, u128)),
-            ResultProposed((u64, Score, Option<PenaltyWinner>, ActorId)),
+            ResultProposed((u64, Score, Option<PenaltyWinner>, ActorId, u64)),
             ResultFinalized((u64, Score, Option<PenaltyWinner>)),
             SettlementPrepared((u64, u128)),
             PointsAwarded((ActorId, u64, u32)),
@@ -448,6 +450,7 @@ pub struct Match {
     pub total_claimed: u128,
     pub settlement_prepared: bool,
     pub dust_swept: bool,
+    pub finalized_at: Option<u64>,
 }
 #[derive(PartialEq, Clone, Debug, Encode, Decode, TypeInfo)]
 #[codec(crate = sails_rs::scale_codec)]
@@ -458,6 +461,7 @@ pub enum ResultStatus {
         score: Score,
         penalty_winner: Option<PenaltyWinner>,
         oracle: ActorId,
+        proposed_at: u64,
     },
     Finalized {
         score: Score,

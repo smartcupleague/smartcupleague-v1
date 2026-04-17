@@ -523,6 +523,7 @@ name = "bolao-app"
 version = "0.1.0"
 dependencies = [
  "gstd",
+ "oracle-client",
  "sails-rs",
 ]
 
@@ -3746,6 +3747,24 @@ name = "opaque-debug"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
+
+[[package]]
+name = "oracle-app"
+version = "0.1.0"
+dependencies = [
+ "gstd",
+ "sails-rs",
+]
+
+[[package]]
+name = "oracle-client"
+version = "0.1.0"
+dependencies = [
+ "oracle-app",
+ "sails-client-gen",
+ "sails-idl-gen",
+ "sails-rs",
+]
 
 [[package]]
 name = "ordered-float"

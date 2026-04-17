@@ -8,7 +8,7 @@ pub static mut SMARTCUP_STATE: Option<SmartCupState> = None;
 
 #[derive(Debug, Clone, Default)]
 pub struct SmartCupState {
-    pub admin: ActorId,
+    pub admins: Vec<ActorId>,
     pub protocol_fee_accumulated: u128,
     pub final_prize_accumulated: u128,
     pub matches: SailsHashMap<u64, Match>,
@@ -27,15 +27,13 @@ pub struct SmartCupState {
     pub final_prize_rounding_dust: u128,
     pub final_prize_allocations: SailsHashMap<ActorId, u128>,
     pub final_prize_claimed: SailsHashMap<ActorId, bool>,
-    /// Pending admin address for 2-step ownership transfer.
-    pub pending_admin: Option<ActorId>,
 }
 
 impl SmartCupState {
     pub fn init(admin: ActorId) {
         unsafe {
             SMARTCUP_STATE = Some(Self {
-                admin,
+                admins: vec![admin],
                 ..Default::default()
             })
         }
@@ -53,9 +51,10 @@ impl SmartCupState {
         unsafe { s.unwrap_unchecked() }
     }
 
-    /// Panics if the caller is not the admin.
+    /// Panics if the caller is not one of the admins.
     pub fn only_admin(&self) {
-        if msg::source() != self.admin {
+        let caller = msg::source();
+        if !self.admins.contains(&caller) {
             panic!("Only admin");
         }
     }
@@ -75,7 +74,7 @@ impl SmartCupState {
 #[codec(crate = sails_rs::scale_codec)]
 #[scale_info(crate = sails_rs::scale_info)]
 pub struct IoSmartCupState {
-    pub admin: ActorId,
+    pub admins: Vec<ActorId>,
     pub protocol_fee_accumulated: u128,
     pub final_prize_accumulated: u128,
     pub matches: Vec<Match>,
@@ -91,7 +90,7 @@ pub struct IoSmartCupState {
 impl From<SmartCupState> for IoSmartCupState {
     fn from(state: SmartCupState) -> Self {
         Self {
-            admin: state.admin,
+            admins: state.admins,
             protocol_fee_accumulated: state.protocol_fee_accumulated,
             final_prize_accumulated: state.final_prize_accumulated,
             matches: state.matches.values().cloned().collect(),
