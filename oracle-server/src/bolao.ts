@@ -300,6 +300,6 @@ export class BolaoService {
       '(String, String, IoSmartCupState)',
       reply.payload,
     );
-    return result[2].toJSON() as IoSmartCupState;
+    return result[2].toJSON() as unknown as IoSmartCupState;
   }
 }

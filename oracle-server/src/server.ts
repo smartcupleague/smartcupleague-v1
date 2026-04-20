@@ -9,8 +9,8 @@ import { Keyring } from "@polkadot/keyring";
 import { decodeAddress, encodeAddress } from "@polkadot/util-crypto";
 import { u8aToHex } from "@polkadot/util";
 
-import { Program as OracleProgram, PenaltyWinner } from "./oracle.ts";
-import { BolaoProgram } from "./bolao.ts";
+import { Program as OracleProgram, PenaltyWinner } from "./oracle";
+import { BolaoProgram } from "./bolao";
 
 /* ============================================================
    ENV

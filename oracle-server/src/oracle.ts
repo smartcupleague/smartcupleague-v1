@@ -295,11 +295,11 @@ export class Service {
       payload,
       value: value ?? 0,
       gasLimit: this._program.api.blockGasLimit.toBigInt(),
-      at: atBlock ?? null,
+      at: atBlock ?? undefined,
     });
     if (!reply.code.isSuccess) throw new Error(this._program.registry.createType('String', reply.payload).toString());
     const result = this._program.registry.createType('(String, String, Vec<IoMatchResult>)', reply.payload);
-    return result[2].toJSON() as IoMatchResult[];
+    return result[2].toJSON() as unknown as IoMatchResult[];
   }
 
   public async queryFeederSubmissions(
@@ -315,7 +315,7 @@ export class Service {
       payload,
       value: value ?? 0,
       gasLimit: this._program.api.blockGasLimit.toBigInt(),
-      at: atBlock ?? null,
+      at: atBlock ?? undefined,
     });
     if (!reply.code.isSuccess) throw new Error(this._program.registry.createType('String', reply.payload).toString());
     const result = this._program.registry.createType('(String, String, Vec<(u64, Score, Option<PenaltyWinner>)>)', reply.payload);
@@ -335,7 +335,7 @@ export class Service {
       payload,
       value: value ?? 0,
       gasLimit: this._program.api.blockGasLimit.toBigInt(),
-      at: atBlock ?? null,
+      at: atBlock ?? undefined,
     });
     if (!reply.code.isSuccess) throw new Error(this._program.registry.createType('String', reply.payload).toString());
     const result = this._program.registry.createType('(String, String, Option<FinalResult>)', reply.payload);
@@ -354,7 +354,7 @@ export class Service {
       payload,
       value: value ?? 0,
       gasLimit: this._program.api.blockGasLimit.toBigInt(),
-      at: atBlock ?? null,
+      at: atBlock ?? undefined,
     });
     if (!reply.code.isSuccess) throw new Error(this._program.registry.createType('String', reply.payload).toString());
     const result = this._program.registry.createType('(String, String, Vec<u64>)', reply.payload);
@@ -373,11 +373,11 @@ export class Service {
       payload,
       value: value ?? 0,
       gasLimit: this._program.api.blockGasLimit.toBigInt(),
-      at: atBlock ?? null,
+      at: atBlock ?? undefined,
     });
     if (!reply.code.isSuccess) throw new Error(this._program.registry.createType('String', reply.payload).toString());
     const result = this._program.registry.createType('(String, String, IoOracleState)', reply.payload);
-    return result[2].toJSON() as IoOracleState;
+    return result[2].toJSON() as unknown as IoOracleState;
   }
 
   public subscribeToMatchRegisteredEvent(
@@ -448,7 +448,7 @@ export class Service {
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'ResultSubmitted') {
         void Promise.resolve(callback(
           (() => {
-            const decoded = this._program.registry.createType('(String, String, ResultSubmitted)', message.payload)[2].toJSON();
+            const decoded = this._program.registry.createType('(String, String, ResultSubmitted)', message.payload)[2].toJSON() as any[];
             return {
               match_id: decoded[0] as number | string | bigint,
               feeder: decoded[1] as ActorId,
@@ -469,7 +469,7 @@ export class Service {
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'ConsensusReached') {
         void Promise.resolve(callback(
           (() => {
-            const decoded = this._program.registry.createType('(String, String, ConsensusReached)', message.payload)[2].toJSON();
+            const decoded = this._program.registry.createType('(String, String, ConsensusReached)', message.payload)[2].toJSON() as any[];
             return {
               match_id: decoded[0] as number | string | bigint,
               score: decoded[1] as Score,
@@ -490,7 +490,7 @@ export class Service {
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'ResultForced') {
         void Promise.resolve(callback(
           (() => {
-            const decoded = this._program.registry.createType('(String, String, ResultForced)', message.payload)[2].toJSON();
+            const decoded = this._program.registry.createType('(String, String, ResultForced)', message.payload)[2].toJSON() as any[];
             return {
               match_id: decoded[0] as number | string | bigint,
               score: decoded[1] as Score,
@@ -525,7 +525,7 @@ export class Service {
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'AdminProposed') {
         void Promise.resolve(callback(
           (() => {
-            const decoded = this._program.registry.createType('(String, String, AdminProposed)', message.payload)[2].toJSON();
+            const decoded = this._program.registry.createType('(String, String, AdminProposed)', message.payload)[2].toJSON() as any[];
             return {
               old: decoded[0] as ActorId,
               proposed: decoded[1] as ActorId,
@@ -545,7 +545,7 @@ export class Service {
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'AdminChanged') {
         void Promise.resolve(callback(
           (() => {
-            const decoded = this._program.registry.createType('(String, String, AdminChanged)', message.payload)[2].toJSON();
+            const decoded = this._program.registry.createType('(String, String, AdminChanged)', message.payload)[2].toJSON() as any[];
             return {
               old: decoded[0] as ActorId,
               new: decoded[1] as ActorId,
