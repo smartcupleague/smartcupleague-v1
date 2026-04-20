@@ -7,7 +7,6 @@ import { useAccount, useApi } from '@gear-js/react-hooks';
 import { web3Enable } from '@polkadot/extension-dapp';
 import { Program, Service } from '@/hocs/lib';
 import { HexString } from '@gear-js/api';
-import { TEAM_FLAGS } from '@/utils/teams';
 import { StyledWallet } from '@/components/wallet/Wallet';
 import { decodeAddress } from '@polkadot/util-crypto';
 import { u8aToHex } from '@polkadot/util';
@@ -16,14 +15,6 @@ const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http:/
 
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as string;
 
-function normalizeTeamKey(team: string) {
-  return (team || '').trim().toUpperCase().replace(/\s+/g, ' ');
-}
-
-function flagForTeam(teamName: string) {
-  const key = normalizeTeamKey(teamName);
-  return TEAM_FLAGS[key] || '/flags/default.png';
-}
 
 type ResultStatus = any;
 
@@ -197,8 +188,6 @@ function Match() {
       return {
         id: String(selectedMatch.match_id),
 
-        flag1: flagForTeam(selectedMatch.home),
-        flag2: flagForTeam(selectedMatch.away),
         currentScoreText,
         currentScore,
       };

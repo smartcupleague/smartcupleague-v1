@@ -7,21 +7,14 @@ import { useNavigate } from 'react-router-dom';
 import { TransactionBuilder } from 'sails-js';
 import { useToast } from '@/hooks/useToast';
 import { HexString } from '@gear-js/api';
-import { TEAM_FLAGS } from '@/utils/teams';
+import { TeamFlag } from '@/components/common/TeamFlag';
 import { StyledWallet } from '@/components/wallet/Wallet';
 import { useVaraPrice } from '@/hooks/useVaraPrice';
 import { reportClaim } from '@/utils/statsReporter';
+import { matchPath } from '@/utils';
 
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as string;
 
-function normalizeTeamKey(team: string) {
-  return (team || '').trim().toUpperCase().replace(/\s+/g, ' ');
-}
-
-function flagForTeam(teamName: string) {
-  const key = normalizeTeamKey(teamName);
-  return TEAM_FLAGS[key] || '/flags/default.png';
-}
 
 type MatchInfo = {
   match_id: string;
@@ -143,6 +136,22 @@ function getPhases(matches: MatchInfo[]): string[] {
 
 type SortField = 'match_id_asc' | 'match_id_desc' | 'date_asc' | 'date_desc';
 type StatusFilter = '' | 'predicted' | 'not_predicted';
+type CompTab = 'leagues' | 'worldcup';
+
+// Phases registered for WC matches (everything else = leagues)
+const WC_PHASES = new Set([
+  'GROUP_STAGE', 'Group Stage', 'ROUND_OF_16', 'Round Of 16', 'Round of 16',
+  'QUARTER_FINALS', 'Quarter Finals', 'Quarter-finals',
+  'SEMI_FINALS', 'Semi Finals', 'Semi-finals',
+  'THIRD_PLACE', 'Third Place', 'FINAL', 'Final',
+]);
+
+function isWCPhase(phase: string): boolean {
+  if (WC_PHASES.has(phase)) return true;
+  const u = phase.toUpperCase();
+  return u.includes('GROUP') || u.includes('ROUND') || u.includes('QUARTER') ||
+    u.includes('SEMI') || u.includes('FINAL') || u.includes('KNOCKOUT');
+}
 
 export const MatchesTableComponent: React.FC = () => {
   const { api, isApiReady } = useApi();
@@ -162,6 +171,7 @@ export const MatchesTableComponent: React.FC = () => {
   const [sortField, setSortField] = useState<SortField>('match_id_asc');
 
   const [filterStatus, setFilterStatus] = useState<StatusFilter>('');
+  const [activeTab, setActiveTab] = useState<CompTab>('leagues');
   const [claimLoadingId, setClaimLoadingId] = useState<string | null>(null);
   const { planckToUsd } = useVaraPrice();
   const [userBetMatchIds, setUserBetMatchIds] = useState<Set<string>>(new Set());
@@ -223,6 +233,14 @@ export const MatchesTableComponent: React.FC = () => {
 
   const phases = useMemo(() => getPhases(matches ?? []), [matches]);
 
+  const tabCounts = useMemo(() => {
+    const all = matches ?? [];
+    return {
+      leagues: all.filter((m) => !isWCPhase(m.phase)).length,
+      worldcup: all.filter((m) => isWCPhase(m.phase)).length,
+    };
+  }, [matches]);
+
   const filteredMatches = useMemo(() => {
     let list = matches ?? [];
 
@@ -281,8 +299,13 @@ export const MatchesTableComponent: React.FC = () => {
       });
     }
 
+    // Tab filter (apply last so counts are correct)
+    list = list.filter((m) =>
+      activeTab === 'worldcup' ? isWCPhase(m.phase) : !isWCPhase(m.phase),
+    );
+
     return list;
-  }, [matches, filterSearch, headerSearch, filterStage, filterDate, sortField, filterStatus, userBetMatchIds]);
+  }, [matches, filterSearch, headerSearch, filterStage, filterDate, sortField, filterStatus, userBetMatchIds, activeTab]);
 
   const handleClaim = useCallback(
     async (matchId: string) => {
@@ -367,8 +390,21 @@ export const MatchesTableComponent: React.FC = () => {
         </div>
 
         <div className="mxTabs" role="tablist" aria-label="Tournament tabs">
-          <button className="mxTab is-active" type="button" role="tab">
-            World Cup 2026
+          <button
+            className={'mxTab' + (activeTab === 'leagues' ? ' is-active' : '')}
+            type="button"
+            role="tab"
+            onClick={() => { setActiveTab('leagues'); setFilterStage(''); }}
+          >
+            Leagues {tabCounts.leagues > 0 ? `(${tabCounts.leagues})` : ''}
+          </button>
+          <button
+            className={'mxTab' + (activeTab === 'worldcup' ? ' is-active' : '')}
+            type="button"
+            role="tab"
+            onClick={() => { setActiveTab('worldcup'); setFilterStage(''); }}
+          >
+            World Cup 2026 {tabCounts.worldcup > 0 ? `(${tabCounts.worldcup})` : ''}
           </button>
         </div>
 
@@ -451,8 +487,12 @@ export const MatchesTableComponent: React.FC = () => {
 
       <div className="mxSection">
         <div className="mxSection__title">
-          <div className="mxSection__main">World Cup 2026</div>
-          <div className="mxSection__sub">All phases</div>
+          <div className="mxSection__main">
+            {activeTab === 'worldcup' ? 'World Cup 2026' : 'Leagues'}
+          </div>
+          <div className="mxSection__sub">
+            {activeTab === 'worldcup' ? 'All phases' : 'Current season matches'}
+          </div>
         </div>
 
         {loading ? (
@@ -479,7 +519,7 @@ export const MatchesTableComponent: React.FC = () => {
                   <div className="mxCard__top">
                     <div className="mxTeams" title={`${m.home} vs ${m.away}`}>
                       <div className="mxTeam">
-                        <img className="mxFlag" src={flagForTeam(m.home)} alt={`${m.home} flag`} loading="lazy" />
+                        <TeamFlag className="mxFlag" team={m.home} />
                         <span className="mxTeam__name">{m.home}</span>
                       </div>
 
@@ -487,7 +527,7 @@ export const MatchesTableComponent: React.FC = () => {
 
                       <div className="mxTeam mxTeam--right">
                         <span className="mxTeam__name">{m.away}</span>
-                        <img className="mxFlag" src={flagForTeam(m.away)} alt={`${m.away} flag`} loading="lazy" />
+                        <TeamFlag className="mxFlag" team={m.away} />
                       </div>
 
                       <span className={'mxStatus mxStatus--' + r.label.toLowerCase()}>
@@ -511,14 +551,14 @@ export const MatchesTableComponent: React.FC = () => {
                       ) : hasPrediction ? (
                         <button
                           className="mxBtn mxBtn--soft"
-                          onClick={() => navigate(`/2026worldcup/match/${m.match_id}`)}
+                          onClick={() => navigate(matchPath(m.phase, m.match_id))}
                           type="button">
                           Details
                         </button>
-                      ) : r.label !== 'FINAL' ? (
+                      ) : r.label !== 'FINAL' && closesLabel(m.kick_off) !== 'Closed' ? (
                         <button
                           className="mxBtn mxBtn--primary"
-                          onClick={() => navigate(`/2026worldcup/match/${m.match_id}`)}
+                          onClick={() => navigate(matchPath(m.phase, m.match_id))}
                           type="button">
                           Predict
                         </button>

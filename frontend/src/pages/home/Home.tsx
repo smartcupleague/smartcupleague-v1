@@ -9,11 +9,12 @@ import { HexString } from '@gear-js/api';
 import { TransactionBuilder } from 'sails-js';
 import { Program as CoreProgram, Service as CoreService } from '@/hocs/lib';
 import { Program as DaoProgram, Service as DaoService } from '@/hocs/dao';
-import { TEAM_FLAGS } from '@/utils/teams';
+import { TeamFlag } from '@/components/common/TeamFlag';
 import { StyledWallet } from '@/components/wallet/Wallet';
 import { useNavigate } from 'react-router-dom';
 import { useOnboarding } from '@/hooks/useOnboarding';
 import { OnboardingModal } from '@/components/onboarding/OnboardingModal';
+import { matchPath } from '@/utils';
 
 const CORE_PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as string;
 const DAO_PROGRAM_ID = import.meta.env.VITE_DAOPROGRAM as string;
@@ -71,22 +72,6 @@ type FinalPrizeClaimStatus = {
   points: number;
 };
 
-function normalizeTeamKey(team: string) {
-  const raw = (team || '').trim();
-  if (!raw) return '';
-  const noDiacritics = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  const spaced = noDiacritics.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
-  return spaced.toUpperCase();
-}
-
-function flagForTeam(team: string) {
-  const key = normalizeTeamKey(team);
-  if (!key) return '/flags/default.png';
-  if (TEAM_FLAGS[key]) return TEAM_FLAGS[key];
-  const firstToken = key.split(' ')[0];
-  if (TEAM_FLAGS[firstToken]) return TEAM_FLAGS[firstToken];
-  return '/flags/default.png';
-}
 
 function shortHex(addr: string) {
   if (!addr) return '-';
@@ -216,18 +201,8 @@ function isZeroLikeAmount(value?: string | number | bigint | null) {
   return raw === '' || raw === '0' || raw === '0x0';
 }
 
-function TeamFlag({ team }: { team: string }) {
-  return (
-    <img
-      className="h-flag"
-      src={flagForTeam(team)}
-      alt={`${team} flag`}
-      onError={(e) => {
-        (e.currentTarget as HTMLImageElement).src = '/flags/default.png';
-      }}
-      loading="lazy"
-    />
-  );
+function HomeTeamFlag({ team }: { team: string }) {
+  return <TeamFlag team={team} className="h-flag" />;
 }
 
 export default function Home() {
@@ -304,7 +279,7 @@ export default function Home() {
       : [];
 
     setCoreState({
-      admin: String(s?.admin ?? s?.owner ?? ''),
+      admin: String(Array.isArray(s?.admins) ? (s.admins[0] ?? '') : (s?.admin ?? s?.owner ?? '')),
       protocol_fee_accumulated: s?.protocol_fee_accumulated ?? s?.fee_accum ?? '0',
       final_prize_accumulated: s?.final_prize_accumulated ?? s?.final_prize_accum ?? '0',
       final_prize_finalized: Boolean(s?.final_prize_finalized),
@@ -808,7 +783,7 @@ export default function Home() {
                   <button
                     className="h-btn h-btn--primary"
                     type="button"
-                    onClick={() => navigate(`/2026worldcup/match/${nextMatch.match_id}`)}>
+                    onClick={() => navigate(matchPath(nextMatch.phase, nextMatch.match_id))}>
                     Predict now
                   </button>
                   <button
@@ -1032,12 +1007,12 @@ export default function Home() {
                   <div className="h-match__main">
                     <div className="h-match__teams">
                       <span className="h-team">
-                        <TeamFlag team={m.home} />
+                        <HomeTeamFlag team={m.home} />
                         <span className="h-team__name">{m.home}</span>
                       </span>
                       <span className="h-vs">vs</span>
                       <span className="h-team">
-                        <TeamFlag team={m.away} />
+                        <HomeTeamFlag team={m.away} />
                         <span className="h-team__name">{m.away}</span>
                       </span>
                       {hasPred && <span className="h-pred-tag">✓ Predicted</span>}
@@ -1051,7 +1026,7 @@ export default function Home() {
                   <button
                     className={hasPred ? 'h-btn h-btn--ghost' : 'h-btn h-btn--soft'}
                     type="button"
-                    onClick={() => navigate(`/2026worldcup/match/${m.match_id}`)}>
+                    onClick={() => navigate(matchPath(m.phase, m.match_id))}>
                     {hasPred ? 'Details' : 'Predict Now'}
                   </button>
                 </div>

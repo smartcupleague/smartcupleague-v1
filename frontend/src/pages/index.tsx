@@ -8,6 +8,7 @@ import { QueryBetsByUserComponent } from '@/components/predictions/QueryBetsByUs
 import Leaderboards from '@/components/leaderboard/Leaderboards';
 import GovernancePanel from '@/components/dao/GovernancePanel';
 import { Simulator } from './simulator';
+import { AdminFixtures } from './admin-fixtures';
 import TermsOfUse from './legal/TermsOfUse';
 import DaoConstitution from './legal/DaoConstitution';
 import Rules from './legal/Rules';
@@ -16,14 +17,16 @@ function Routing() {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
-      {/* Match route: /2026worldcup/match/:id */}
+      {/* Match routes */}
       <Route path="/2026worldcup/match/:id" element={<Match />} />
+      <Route path="/leagues/match/:id" element={<Match />} />
       {/* Legacy redirect kept for backwards compatibility */}
       <Route path="/match/:id" element={<Match />} />
       {/* Legal pages — accessible without auth */}
       <Route path="/terms-of-use" element={<TermsOfUse />} />
       <Route path="/dao-constitution" element={<DaoConstitution />} />
       <Route path="/rules" element={<Rules />} />
+      <Route path="/admin/fixtures" element={<AdminFixtures />} />
       <Route element={<AppLayout />}>
         {/* /progress replaces /home */}
         <Route path="/progress" element={<Home />} />

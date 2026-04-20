@@ -8,7 +8,7 @@ import { TransactionBuilder } from 'sails-js';
 import { useToast } from '@/hooks/useToast';
 import './matchcard.css';
 import { HexString } from '@gear-js/api';
-import { TEAM_FLAGS } from '@/utils/teams';
+import { TeamFlag } from '@/components/common/TeamFlag';
 import { reportBet } from '@/utils/statsReporter';
 
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as string;
@@ -75,20 +75,6 @@ type PenaltyWinnerArg = { Home: null } | { Away: null };
 type MaybePenaltyWinnerArg = PenaltyWinnerArg | null;
 type ScoreText = { home: string; away: string };
 
-function normalizeTeamKey(team: string) {
-  return (team || '').trim().toUpperCase().replace(/\s+/g, ' ');
-}
-
-function flagForTeam(teamName: string) {
-  const key = normalizeTeamKey(teamName);
-  return TEAM_FLAGS[key] || '/flags/default.png';
-}
-
-function resolveFlagFromPropsOrTeam(flagProp: string | undefined, teamName: string): string {
-  const raw = (flagProp || '').trim();
-  if (raw) return raw;
-  return flagForTeam(teamName);
-}
 
 function kickOffToMs(kickOff: string): number {
   const n = Number(kickOff);
@@ -888,15 +874,6 @@ export const MatchCard: React.FC<MatchCardProps> = ({
     return base;
   }, [match, isFinalized, chainResult.home, chainResult.away, chainResult.penaltyWinner]);
 
-  const leftFlagSrc = useMemo(
-    () => (match ? resolveFlagFromPropsOrTeam(flag1, match.home) : (flag1 || '').trim()),
-    [flag1, match],
-  );
-
-  const rightFlagSrc = useMemo(
-    () => (match ? resolveFlagFromPropsOrTeam(flag2, match.away) : (flag2 || '').trim()),
-    [flag2, match],
-  );
 
   const prizeEstimate = useMemo(() => {
     if (!match) return null;
@@ -982,9 +959,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({
 
       <div className="mcx__scoreTop">
         <div className="mcx__side">
-          {leftFlagSrc ? (
-            <img className="mcx__flagLg" src={leftFlagSrc} alt={`${match.home} flag`} />
-          ) : null}
+          <TeamFlag className="mcx__flagLg" team={match.home} />
           <div className="mcx__teamLbl">{match.home.toUpperCase()}</div>
         </div>
 
@@ -995,9 +970,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({
         </div>
 
         <div className="mcx__side">
-          {rightFlagSrc ? (
-            <img className="mcx__flagLg" src={rightFlagSrc} alt={`${match.away} flag`} />
-          ) : null}
+          <TeamFlag className="mcx__flagLg" team={match.away} />
           <div className="mcx__teamLbl">{match.away.toUpperCase()}</div>
         </div>
       </div>
@@ -1006,13 +979,13 @@ export const MatchCard: React.FC<MatchCardProps> = ({
 
       <div className="mcx__miniBadge">
         <div className="mcx__miniTeam">
-          {leftFlagSrc ? <img className="mcx__flagSm" src={leftFlagSrc} alt="" /> : null}
+          <TeamFlag className="mcx__flagSm" team={match.home} alt="" />
           <div className="mcx__miniN">{selectedScore.home}</div>
         </div>
         <div className="mcx__miniVS">vs</div>
         <div className="mcx__miniTeam">
           <div className="mcx__miniN">{selectedScore.away}</div>
-          {rightFlagSrc ? <img className="mcx__flagSm" src={rightFlagSrc} alt="" /> : null}
+          <TeamFlag className="mcx__flagSm" team={match.away} alt="" />
         </div>
       </div>
 
