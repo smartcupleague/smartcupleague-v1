@@ -1,4 +1,6 @@
 import "dotenv/config.js";
+import fs from "fs";
+import path from "path";
 import express from "express";
 import helmet from "helmet";
 import cors from "cors";
@@ -18,9 +20,13 @@ const VARA_WS = mustEnv("VARA_WS");
 const ORACLE_PROGRAM_ID = mustEnv("ORACLE_PROGRAM_ID") as `0x${string}`;
 const BOLAO_PROGRAM_ID = (process.env.BOLAO_PROGRAM_ID ?? "") as `0x${string}`;
 const GATEWAY_SEED = mustEnv("GATEWAY_SEED");
+const OPERATOR_SEED = process.env.OPERATOR_SEED ?? "";
 const SPORTS_API_KEY = process.env.SPORTS_API_KEY ?? "";
 const SPORTS_COMPETITION_CODE = process.env.SPORTS_COMPETITION_CODE ?? "WC";
-const AUTO_FEED_INTERVAL_MS = intEnv("AUTO_FEED_INTERVAL_MS", 120_000);
+const FRIENDLIES_COMPETITION_CODES = process.env.FRIENDLIES_COMPETITION_CODES ?? "";
+const AUTO_FEED_INTERVAL_MS   = intEnv("AUTO_FEED_INTERVAL_MS",   120_000);
+const CHALLENGE_WINDOW_MS     = intEnv("CHALLENGE_WINDOW_MS",     2 * 60 * 1000); // 2 min default
+const FINALIZE_BUFFER_MS      = intEnv("FINALIZE_BUFFER_MS",      15_000);        // 15 s safety buffer
 const NATIVE_DECIMALS = 12;
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? "*")
@@ -50,14 +56,69 @@ interface SportMatch {
   };
 }
 
+/* World Cup enriched types (football-data.org v4) */
+interface WCTeam {
+  id: number;
+  name: string;
+  shortName: string;
+  tla: string;
+  crest: string;
+}
+
+interface WCFixture {
+  id: number;
+  matchday: number | null;
+  stage: string;
+  group: string | null;
+  status: string;
+  utcDate: string;
+  homeTeam: WCTeam;
+  awayTeam: WCTeam;
+  score: {
+    winner: string | null;
+    fullTime: SportScore;
+    halfTime: SportScore;
+    penalties: SportScore;
+  };
+}
+
+interface WCStandingRow {
+  position: number;
+  team: WCTeam;
+  playedGames: number;
+  won: number;
+  draw: number;
+  lost: number;
+  points: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  goalDifference: number;
+}
+
+interface WCStandingGroup {
+  stage: string;
+  type: string;
+  group: string;
+  table: WCStandingRow[];
+}
+
 async function fetchSportMatch(matchId: number): Promise<SportMatch> {
+  const cacheKey = `match:${matchId}`;
+  const cached = getCached<SportMatch>(cacheKey);
+  if (cached) return cached;
+
   const res = await fetch(`${SPORTS_BASE_URL}/matches/${matchId}`, {
     headers: buildSportsHeaders(),
   });
   if (!res.ok) {
     throw new Error(`sports-api /matches/${matchId} → ${res.status} ${res.statusText}`);
   }
-  return (await res.json()) as SportMatch;
+  const match = (await res.json()) as SportMatch;
+  // Only cache finished matches indefinitely (score won't change).
+  // Non-finished matches use short TTL so we re-check soon.
+  const ttl = match.status === "FINISHED" ? FIXTURES_TTL_MS : MATCH_TTL_MS;
+  setCached(cacheKey, match, ttl);
+  return match;
 }
 
 async function fetchFinishedMatchesForCompetition(): Promise<SportMatch[]> {
@@ -80,6 +141,200 @@ function buildSportsHeaders(): Record<string, string> {
   return headers;
 }
 
+/* ── In-memory cache for sports-api responses ──────────────────────────────
+ * football-data.org free tier: 10 req/min.
+ * Cache TTL:
+ *   - WC fixtures / standings / teams : 5 min  (slow-changing data)
+ *   - Individual match result          : 2 min  (only needed for finished matches)
+ */
+interface CacheEntry<T> { data: T; expiresAt: number }
+const sportsCache = new Map<string, CacheEntry<unknown>>();
+
+// Accumulated crests from every fixture fetch — persists for the lifetime of the process
+const crestsAccumulator: Record<string, string> = {};
+
+function populateCrests(fixtures: WCFixture[]): void {
+  for (const m of fixtures) {
+    if (m.homeTeam?.name && m.homeTeam?.crest) crestsAccumulator[m.homeTeam.name] = m.homeTeam.crest;
+    if (m.homeTeam?.shortName && m.homeTeam?.crest) crestsAccumulator[m.homeTeam.shortName] = m.homeTeam.crest;
+    if (m.awayTeam?.name && m.awayTeam?.crest) crestsAccumulator[m.awayTeam.name] = m.awayTeam.crest;
+    if (m.awayTeam?.shortName && m.awayTeam?.crest) crestsAccumulator[m.awayTeam.shortName] = m.awayTeam.crest;
+  }
+}
+
+function getCached<T>(key: string): T | null {
+  const entry = sportsCache.get(key) as CacheEntry<T> | undefined;
+  if (!entry || Date.now() > entry.expiresAt) return null;
+  return entry.data;
+}
+
+function setCached<T>(key: string, data: T, ttlMs: number): void {
+  sportsCache.set(key, { data, expiresAt: Date.now() + ttlMs });
+}
+
+const FIXTURES_TTL_MS = 5 * 60 * 1000;   // 5 minutes
+const MATCH_TTL_MS    = 2 * 60 * 1000;   // 2 minutes
+
+/* ── Match ID mapping (persistent) ─────────────────────────────────────────
+ * BolaoCore and Oracle-Program both use the same sequential match_id (1, 2, 3…).
+ * Football-data.org uses large numeric IDs (419078, …).
+ * This mapping lets the auto-feeder resolve the sports-API ID from the
+ * sequential ID stored on-chain.
+ *
+ * Populated by POST /setup/sync-tournament.
+ * Persisted to DATA_DIR/match-mapping.json so it survives restarts.
+ */
+const DATA_DIR = path.resolve("./data");
+const MATCH_MAPPING_FILE  = path.join(DATA_DIR, "match-mapping.json");
+const KICK_OFF_MAP_FILE   = path.join(DATA_DIR, "kick-off-map.json");
+
+/** sequential bolao/oracle match_id  →  football-data.org sports API ID */
+const matchIdToSportsId = new Map<number, number>();
+/** football-data.org sports API ID  →  sequential bolao/oracle match_id */
+const sportsIdToMatchId = new Map<number, number>();
+/** sequential bolao/oracle match_id  →  kick-off timestamp (ms) */
+const kickOffMap = new Map<number, number>();
+
+function loadMatchMapping(): void {
+  try {
+    if (!fs.existsSync(MATCH_MAPPING_FILE)) return;
+    const raw = fs.readFileSync(MATCH_MAPPING_FILE, "utf8");
+    const parsed = JSON.parse(raw) as Record<string, number>;
+    matchIdToSportsId.clear();
+    sportsIdToMatchId.clear();
+    for (const [k, v] of Object.entries(parsed)) {
+      const mid = Number(k);
+      matchIdToSportsId.set(mid, v);
+      sportsIdToMatchId.set(v, mid);
+    }
+    console.log(`[mapping] Loaded ${matchIdToSportsId.size} match ID mappings from ${MATCH_MAPPING_FILE}`);
+  } catch (e: any) {
+    console.warn("[mapping] Failed to load match mapping:", e?.message);
+  }
+}
+
+function loadKickOffMap(): void {
+  try {
+    if (!fs.existsSync(KICK_OFF_MAP_FILE)) return;
+    const raw = fs.readFileSync(KICK_OFF_MAP_FILE, "utf8");
+    const parsed = JSON.parse(raw) as Record<string, number>;
+    kickOffMap.clear();
+    for (const [k, v] of Object.entries(parsed)) kickOffMap.set(Number(k), v);
+    console.log(`[mapping] Loaded ${kickOffMap.size} kick-off entries from ${KICK_OFF_MAP_FILE}`);
+  } catch (e: any) {
+    console.warn("[mapping] Failed to load kick-off map:", e?.message);
+  }
+}
+
+function addMatchMapping(bolaoMatchId: number, sportsApiId: number): void {
+  matchIdToSportsId.set(bolaoMatchId, sportsApiId);
+  sportsIdToMatchId.set(sportsApiId, bolaoMatchId);
+}
+
+function addKickOff(bolaoMatchId: number, kickOffMs: number): void {
+  kickOffMap.set(bolaoMatchId, kickOffMs);
+}
+
+function saveMatchMapping(): void {
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    const obj: Record<string, number> = {};
+    matchIdToSportsId.forEach((v, k) => { obj[String(k)] = v; });
+    fs.writeFileSync(MATCH_MAPPING_FILE, JSON.stringify(obj, null, 2));
+    console.log(`[mapping] Saved ${matchIdToSportsId.size} entries to ${MATCH_MAPPING_FILE}`);
+  } catch (e: any) {
+    console.warn("[mapping] Failed to save match mapping:", e?.message);
+  }
+}
+
+function saveKickOffMap(): void {
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    const obj: Record<string, number> = {};
+    kickOffMap.forEach((v, k) => { obj[String(k)] = v; });
+    fs.writeFileSync(KICK_OFF_MAP_FILE, JSON.stringify(obj, null, 2));
+  } catch (e: any) {
+    console.warn("[mapping] Failed to save kick-off map:", e?.message);
+  }
+}
+
+async function fetchWCFixtures(status?: string): Promise<WCFixture[]> {
+  const cacheKey = `wc-fixtures:${status ?? "all"}`;
+  const cached = getCached<WCFixture[]>(cacheKey);
+  if (cached) return cached;
+
+  const url = status
+    ? `${SPORTS_BASE_URL}/competitions/WC/matches?status=${encodeURIComponent(status)}`
+    : `${SPORTS_BASE_URL}/competitions/WC/matches`;
+  const res = await fetch(url, { headers: buildSportsHeaders() });
+  if (!res.ok) {
+    throw new Error(`sports-api WC/matches → ${res.status} ${res.statusText}`);
+  }
+  const body = (await res.json()) as { matches: WCFixture[] };
+  const matches = body.matches ?? [];
+  setCached(cacheKey, matches, FIXTURES_TTL_MS);
+  populateCrests(matches);
+  return matches;
+}
+
+async function fetchWCStandings(): Promise<WCStandingGroup[]> {
+  const cacheKey = "wc-standings";
+  const cached = getCached<WCStandingGroup[]>(cacheKey);
+  if (cached) return cached;
+
+  const res = await fetch(`${SPORTS_BASE_URL}/competitions/WC/standings`, {
+    headers: buildSportsHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`sports-api WC/standings → ${res.status} ${res.statusText}`);
+  }
+  const body = (await res.json()) as { standings: WCStandingGroup[] };
+  setCached(cacheKey, body.standings ?? [], FIXTURES_TTL_MS);
+  return body.standings ?? [];
+}
+
+// Free-tier competition IDs on football-data.org
+// WC=2000, CL=2001, BL1=2002, DED=2003, BSA=2013, PD=2014, FL1=2015, ELC=2016, PPL=2017, EC=2018, SA=2019, PL=2021
+const FREE_TIER_COMPETITIONS = "2000,2001,2002,2003,2013,2014,2015,2016,2017,2018,2019,2021";
+
+async function fetchFriendliesInWindow(days = 14): Promise<WCFixture[]> {
+  const now = new Date();
+  const from = now.toISOString().split("T")[0];
+  const to = new Date(now.getTime() + days * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+  const cacheKey = `friendlies:${from}:${days}`;
+  const cached = getCached<WCFixture[]>(cacheKey);
+  if (cached) return cached;
+
+  const competitions = FRIENDLIES_COMPETITION_CODES || FREE_TIER_COMPETITIONS;
+  const url = `${SPORTS_BASE_URL}/matches?dateFrom=${from}&dateTo=${to}&competitions=${competitions}`;
+
+  const res = await fetch(url, { headers: buildSportsHeaders() });
+  if (!res.ok) {
+    throw new Error(`sports-api /matches → ${res.status} ${res.statusText}`);
+  }
+  const body = (await res.json()) as { matches: WCFixture[] };
+  const matches = body.matches ?? [];
+  setCached(cacheKey, matches, FIXTURES_TTL_MS);
+  populateCrests(matches);
+  return matches;
+}
+
+async function fetchWCTeams(): Promise<WCTeam[]> {
+  const cacheKey = "wc-teams";
+  const cached = getCached<WCTeam[]>(cacheKey);
+  if (cached) return cached;
+
+  const res = await fetch(`${SPORTS_BASE_URL}/competitions/WC/teams`, {
+    headers: buildSportsHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error(`sports-api WC/teams → ${res.status} ${res.statusText}`);
+  }
+  const body = (await res.json()) as { teams: WCTeam[] };
+  setCached(cacheKey, body.teams ?? [], FIXTURES_TTL_MS);
+  return body.teams ?? [];
+}
+
 /**
  * Map a SportMatch to Oracle-Program inputs.
  * Returns null if the match is not finished / scores are missing.
@@ -94,7 +349,7 @@ function mapMatchToOracle(
   const away = m.score.fullTime.away;
 
   let penalty_winner: PenaltyWinner | null = null;
-  if (m.score.penalties.home != null && m.score.penalties.away != null) {
+  if (home === away && m.score.penalties.home != null && m.score.penalties.away != null) {
     penalty_winner = m.score.penalties.home > m.score.penalties.away ? "Home" : "Away";
   }
 
@@ -118,6 +373,12 @@ async function getApi(): Promise<GearApi> {
 function getGatewaySigner() {
   const keyring = new Keyring({ type: "sr25519" });
   return keyring.addFromUri(GATEWAY_SEED);
+}
+
+function getOperatorSigner() {
+  if (!OPERATOR_SEED) throw new Error("OPERATOR_SEED is not configured — operator endpoints unavailable");
+  const keyring = new Keyring({ type: "sr25519" });
+  return keyring.addFromUri(OPERATOR_SEED);
 }
 
 function getOracle(api: GearApi): OracleProgram {
@@ -292,18 +553,26 @@ app.get("/oracle/pending", async (_req, res) => {
 
 /**
  * POST /oracle/register-match
- * Body: { match_id: number }
- * Registers a match ID in Oracle-Program so feeders can submit results.
+ * Body: { match_id: number, phase: string, home: string, away: string, kick_off: number }
+ * Registers a match in Oracle-Program with the same metadata as BolaoCore.
  */
 app.post("/oracle/register-match", async (req, res) => {
   try {
-    const matchId = asMatchId(req.body?.match_id, "match_id");
+    const matchId  = asMatchId(req.body?.match_id, "match_id");
+    const phase    = String(req.body?.phase    ?? "");
+    const home     = String(req.body?.home     ?? "");
+    const away     = String(req.body?.away     ?? "");
+    const kickOff  = Number(req.body?.kick_off ?? 0);
+    if (!phase)  throw new Error("phase is required");
+    if (!home)   throw new Error("home is required");
+    if (!away)   throw new Error("away is required");
+    if (!kickOff) throw new Error("kick_off is required");
     const api = await getApi();
     const signer = getGatewaySigner();
     const oracle = getOracle(api);
-    const tx = oracle.service.registerMatch(matchId);
+    const tx = oracle.service.registerMatch(matchId, phase, home, away, BigInt(kickOff));
     const result = await sendTx(tx, signer, "registerMatch");
-    return res.json({ ok: true, match_id: Number(matchId), result });
+    return res.json({ ok: true, match_id: Number(matchId), phase, home, away, kick_off: kickOff, result });
   } catch (e: any) {
     console.error("[/oracle/register-match]", e?.stack ?? e);
     return res.status(400).json({ ok: false, error: e?.message });
@@ -323,6 +592,7 @@ app.post("/oracle/force-finalize", async (req, res) => {
     if (!Number.isInteger(home) || home < 0 || home > 255) throw new Error("home must be 0–255");
     if (!Number.isInteger(away) || away < 0 || away > 255) throw new Error("away must be 0–255");
     const penaltyWinner = asPenaltyWinner(req.body?.penalty_winner ?? null);
+    if (penaltyWinner !== null && home !== away) throw new Error("penalty_winner must be null when score is not a draw");
 
     const api = await getApi();
     const signer = getGatewaySigner();
@@ -456,6 +726,48 @@ app.post("/oracle/accept-admin", async (_req, res) => {
   }
 });
 
+/**
+ * POST /oracle/add-operator
+ * Body: { operator: "SS58 or 0x..." }
+ * Grants operator role in Oracle-Program (can register matches and force-finalize).
+ * Admin-only — signed with GATEWAY_SEED.
+ */
+app.post("/oracle/add-operator", async (req, res) => {
+  try {
+    const operator = asActorId(req.body?.operator, "operator");
+    const api = await getApi();
+    const signer = getGatewaySigner();
+    const oracle = getOracle(api);
+    const tx = oracle.service.addOperator(operator);
+    const result = await sendTx(tx, signer, "oracle:addOperator");
+    return res.json({ ok: true, operator, result });
+  } catch (e: any) {
+    console.error("[/oracle/add-operator]", e?.stack ?? e);
+    return res.status(400).json({ ok: false, error: e?.message });
+  }
+});
+
+/**
+ * POST /oracle/remove-operator
+ * Body: { operator: "SS58 or 0x..." }
+ * Revokes operator role in Oracle-Program.
+ * Admin-only — signed with GATEWAY_SEED.
+ */
+app.post("/oracle/remove-operator", async (req, res) => {
+  try {
+    const operator = asActorId(req.body?.operator, "operator");
+    const api = await getApi();
+    const signer = getGatewaySigner();
+    const oracle = getOracle(api);
+    const tx = oracle.service.removeOperator(operator);
+    const result = await sendTx(tx, signer, "oracle:removeOperator");
+    return res.json({ ok: true, operator, result });
+  } catch (e: any) {
+    console.error("[/oracle/remove-operator]", e?.stack ?? e);
+    return res.status(400).json({ ok: false, error: e?.message });
+  }
+});
+
 /* ============================================================
    ORACLE — FEEDER MUTATION
    ============================================================ */
@@ -473,6 +785,7 @@ app.post("/oracle/submit-result", async (req, res) => {
     if (!Number.isInteger(home) || home < 0 || home > 255) throw new Error("home must be 0–255");
     if (!Number.isInteger(away) || away < 0 || away > 255) throw new Error("away must be 0–255");
     const penaltyWinner = asPenaltyWinner(req.body?.penalty_winner ?? null);
+    if (penaltyWinner !== null && home !== away) throw new Error("penalty_winner must be null when score is not a draw");
 
     const api = await getApi();
     const signer = getGatewaySigner();
@@ -522,6 +835,26 @@ app.get("/sports/finished", async (_req, res) => {
 });
 
 /**
+ * GET /sports/matches
+ * Transparent proxy to football-data.org /v4/matches.
+ * All query params are forwarded as-is (dateFrom, dateTo, competitions, status, etc.)
+ * Example: /sports/matches?dateFrom=2026-04-16&dateTo=2026-04-30
+ */
+app.get("/sports/matches", async (req, res) => {
+  try {
+    const qs = new URLSearchParams(req.query as Record<string, string>).toString();
+    const url = `${SPORTS_BASE_URL}/matches${qs ? `?${qs}` : ""}`;
+    const apiRes = await fetch(url, { headers: buildSportsHeaders() });
+    const body = await apiRes.json();
+    if (!apiRes.ok) return res.status(apiRes.status).json({ ok: false, ...body });
+    return res.json({ ok: true, ...body });
+  } catch (e: any) {
+    console.error("[/sports/matches]", e?.message);
+    return res.status(500).json({ ok: false, error: e?.message });
+  }
+});
+
+/**
  * POST /oracle/feed-match/:matchId
  * Fetches the match from football-data.org and submits it to Oracle-Program.
  * The match must already be registered in Oracle-Program (POST /oracle/register-match).
@@ -529,7 +862,9 @@ app.get("/sports/finished", async (_req, res) => {
 app.post("/oracle/feed-match/:matchId", async (req, res) => {
   try {
     const matchId = asMatchId(req.params.matchId, "matchId");
-    const sportMatch = await fetchSportMatch(Number(matchId));
+    // Resolve oracle match_id to the sports-API ID (mapping may differ after sync-tournament)
+    const sportsId = matchIdToSportsId.get(Number(matchId)) ?? Number(matchId);
+    const sportMatch = await fetchSportMatch(sportsId);
     const mapped = mapMatchToOracle(sportMatch);
 
     if (!mapped) {
@@ -556,6 +891,257 @@ app.post("/oracle/feed-match/:matchId", async (req, res) => {
   } catch (e: any) {
     console.error("[/oracle/feed-match]", e?.stack ?? e);
     return res.status(400).json({ ok: false, error: e?.message });
+  }
+});
+
+/* ============================================================
+   WORLD CUP — football-data.org enriched endpoints
+   All routes use competition code "WC" directly (not the
+   configurable SPORTS_COMPETITION_CODE) because these endpoints
+   expose WC-specific data shapes (group tables, team crests, etc.)
+   ============================================================ */
+
+/**
+ * GET /wc/fixtures
+ * All WC fixtures with team names, scores, matchday, and stage.
+ * Optional query param: ?status=FINISHED|SCHEDULED|IN_PLAY|TIMED
+ */
+app.get("/wc/fixtures", async (req, res) => {
+  try {
+    const status = typeof req.query.status === "string" ? req.query.status : undefined;
+    const matches = await fetchWCFixtures(status);
+    return res.json({ ok: true, count: matches.length, matches });
+  } catch (e: any) {
+    console.error("[/wc/fixtures]", e?.message);
+    return res.status(500).json({ ok: false, error: e?.message });
+  }
+});
+
+/**
+ * GET /wc/standings
+ * Current group-stage standings tables (all groups).
+ */
+app.get("/wc/standings", async (_req, res) => {
+  try {
+    const standings = await fetchWCStandings();
+    return res.json({ ok: true, count: standings.length, standings });
+  } catch (e: any) {
+    console.error("[/wc/standings]", e?.message);
+    return res.status(500).json({ ok: false, error: e?.message });
+  }
+});
+
+/**
+ * GET /wc/friendlies
+ * Upcoming friendly matches within a 14-day rolling window.
+ * Filters by FRIENDLIES_COMPETITION_CODES env var if set (comma-separated codes).
+ * Each match includes a `competition` field from football-data.org.
+ */
+app.get("/wc/friendlies", async (_req, res) => {
+  try {
+    const matches = await fetchFriendliesInWindow(14);
+    return res.json({ ok: true, count: matches.length, matches });
+  } catch (e: any) {
+    console.error("[/wc/friendlies]", e?.message);
+    return res.status(500).json({ ok: false, error: e?.message });
+  }
+});
+
+/**
+ * GET /wc/upcoming-15d
+ * Matches across all competitions within a 15-day rolling window.
+ * Filters by FRIENDLIES_COMPETITION_CODES env var if set (comma-separated codes).
+ */
+app.get("/wc/upcoming-15d", async (_req, res) => {
+  try {
+    const matches = await fetchFriendliesInWindow(15);
+    return res.json({ ok: true, count: matches.length, matches });
+  } catch (e: any) {
+    console.error("[/wc/upcoming-15d]", e?.message);
+    return res.status(500).json({ ok: false, error: e?.message });
+  }
+});
+
+/**
+ * GET /sports/competition/:code/matches
+ * Matches for a specific competition in a 15-day rolling window from today.
+ * Uses football-data.org /v4/competitions/{code}/matches endpoint.
+ * Example: /sports/competition/SA/matches  (Serie A)
+ *          /sports/competition/PD/matches  (La Liga)
+ *          /sports/competition/PPL/matches (Liga Portugal)
+ *          /sports/competition/BL1/matches (Bundesliga)
+ *          /sports/competition/FL1/matches (Ligue 1)
+ */
+app.get("/sports/competition/:code/matches", async (req, res) => {
+  try {
+    const code = (req.params.code ?? "").toUpperCase();
+    if (!code) return res.status(400).json({ ok: false, error: "Missing competition code" });
+
+    const now = new Date();
+    const dateFrom = now.toISOString().split("T")[0];
+    const dateTo = new Date(now.getTime() + 15 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    const cacheKey = `competition:${code}:${dateFrom}`;
+    const cached = getCached<WCFixture[]>(cacheKey);
+    if (cached) return res.json({ ok: true, count: cached.length, matches: cached });
+
+    const url = `${SPORTS_BASE_URL}/competitions/${code}/matches?dateFrom=${dateFrom}&dateTo=${dateTo}`;
+    const apiRes = await fetch(url, { headers: buildSportsHeaders() });
+    const body = await apiRes.json() as { matches?: WCFixture[]; error?: string; message?: string };
+    if (!apiRes.ok) return res.status(apiRes.status).json({ ok: false, error: body.message ?? body.error });
+
+    const matches = body.matches ?? [];
+    setCached(cacheKey, matches, FIXTURES_TTL_MS);
+    populateCrests(matches);
+    return res.json({ ok: true, count: matches.length, matches });
+  } catch (e: any) {
+    console.error("[/sports/competition/:code/matches]", e?.message);
+    return res.status(500).json({ ok: false, error: e?.message });
+  }
+});
+
+/**
+ * GET /sports/crests
+ * Returns { [teamName]: crestUrl } aggregated from all cached fixture data.
+ * Used by the frontend to display team crests without needing a sports API key.
+ */
+app.get("/sports/crests", async (_req, res) => {
+  // If accumulator is sparse, actively fetch to warm it up
+  if (Object.keys(crestsAccumulator).length < 5) {
+    await Promise.allSettled([
+      fetchWCFixtures(undefined).then(populateCrests),
+      fetchWCTeams().then((teams) => {
+        for (const t of teams) {
+          if (t.name && t.crest) crestsAccumulator[t.name] = t.crest;
+          if (t.shortName && t.crest) crestsAccumulator[t.shortName] = t.crest;
+        }
+      }),
+    ]);
+  }
+  return res.json({ ok: true, count: Object.keys(crestsAccumulator).length, crests: { ...crestsAccumulator } });
+});
+
+/**
+ * GET /sports/match-crests
+ * Uses matchIdToSportsId mapping to fetch full fixture data for each BolaoCore match.
+ * Returns { [bolaoMatchId]: { home: { name, crest }, away: { name, crest } } }
+ * Populated into crestsAccumulator as a side-effect.
+ */
+app.get("/sports/match-crests", async (_req, res) => {
+  if (matchIdToSportsId.size === 0) {
+    return res.json({ ok: true, count: 0, matches: {} });
+  }
+
+  type TeamInfo = { name: string; shortName: string; crest: string };
+  const result: Record<string, { home: TeamInfo; away: TeamInfo }> = {};
+
+  const fetches = Array.from(matchIdToSportsId.entries()).map(async ([bolaoId, sportsId]) => {
+    try {
+      const cacheKey = `fixture-full:${sportsId}`;
+      let fixture = getCached<WCFixture>(cacheKey);
+      if (!fixture) {
+        const r = await fetch(`${SPORTS_BASE_URL}/matches/${sportsId}`, { headers: buildSportsHeaders() });
+        if (!r.ok) throw new Error(`sports-api /matches/${sportsId} → ${r.status}`);
+        fixture = (await r.json()) as WCFixture;
+        setCached(cacheKey, fixture, FIXTURES_TTL_MS);
+        populateCrests([fixture]);
+      }
+      if (fixture.homeTeam && fixture.awayTeam) {
+        result[String(bolaoId)] = {
+          home: { name: fixture.homeTeam.name ?? '', shortName: fixture.homeTeam.shortName ?? '', crest: fixture.homeTeam.crest ?? '' },
+          away: { name: fixture.awayTeam.name ?? '', shortName: fixture.awayTeam.shortName ?? '', crest: fixture.awayTeam.crest ?? '' },
+        };
+      }
+    } catch (e: any) {
+      console.warn(`[match-crests] Failed for sportsId=${sportsId}:`, e?.message);
+    }
+  });
+
+  await Promise.allSettled(fetches);
+  return res.json({ ok: true, count: Object.keys(result).length, matches: result });
+});
+
+/**
+ * GET /wc/teams
+ * All teams participating in the World Cup with metadata.
+ */
+app.get("/wc/teams", async (_req, res) => {
+  try {
+    const teams = await fetchWCTeams();
+    return res.json({ ok: true, count: teams.length, teams });
+  } catch (e: any) {
+    console.error("[/wc/teams]", e?.message);
+    return res.status(500).json({ ok: false, error: e?.message });
+  }
+});
+
+/**
+ * POST /wc/sync
+ * Fetches all finished WC matches from football-data.org and submits
+ * each result to Oracle-Program (skipps matches that are not registered).
+ *
+ * Body (optional): { dry_run: true }
+ *   dry_run=true returns what would be submitted without sending transactions.
+ */
+app.post("/wc/sync", async (req, res) => {
+  const dryRun = req.body?.dry_run === true;
+
+  try {
+    const matches = await fetchWCFixtures("FINISHED");
+
+    type SyncEntry = {
+      id: number;
+      home_team: string;
+      away_team: string;
+      home: number;
+      away: number;
+      penalty_winner: PenaltyWinner | null;
+    };
+
+    const eligible: SyncEntry[] = [];
+    for (const m of matches) {
+      if (m.score.fullTime.home == null || m.score.fullTime.away == null) continue;
+      const home = m.score.fullTime.home;
+      const away = m.score.fullTime.away;
+      let penalty_winner: PenaltyWinner | null = null;
+      if (home === away && m.score.penalties.home != null && m.score.penalties.away != null) {
+        penalty_winner = m.score.penalties.home > m.score.penalties.away ? "Home" : "Away";
+      }
+      eligible.push({ id: m.id, home_team: m.homeTeam.name, away_team: m.awayTeam.name, home, away, penalty_winner });
+    }
+
+    if (dryRun) {
+      return res.json({ ok: true, dry_run: true, total_finished: matches.length, would_submit: eligible });
+    }
+
+    const api = await getApi();
+    const oracle = getOracle(api);
+    const signer = getGatewaySigner();
+
+    const results: Array<{ id: number; home_team: string; away_team: string; status: string; error?: string }> = [];
+
+    for (const entry of eligible) {
+      // Resolve sports-API ID to the sequential oracle match_id used on-chain.
+      // If no mapping exists the sports-API ID is used directly (legacy behaviour).
+      const oracleMatchId = sportsIdToMatchId.has(entry.id)
+        ? BigInt(sportsIdToMatchId.get(entry.id)!)
+        : BigInt(entry.id);
+      try {
+        const tx = oracle.service.submitResult(oracleMatchId, entry.home, entry.away, entry.penalty_winner);
+        await sendTx(tx, signer, `wc-sync:${entry.id}`);
+        results.push({ id: entry.id, home_team: entry.home_team, away_team: entry.away_team, status: "submitted" });
+        console.log(`[wc/sync] ✓ match ${entry.id} (oracle_id=${oracleMatchId}) ${entry.home_team} ${entry.home}–${entry.away} ${entry.away_team}`);
+      } catch (e: any) {
+        console.warn(`[wc/sync] match ${entry.id} failed:`, e?.message);
+        results.push({ id: entry.id, home_team: entry.home_team, away_team: entry.away_team, status: "failed", error: e?.message });
+      }
+    }
+
+    const submitted = results.filter((r) => r.status === "submitted").length;
+    const failed = results.filter((r) => r.status === "failed").length;
+    return res.json({ ok: true, total_finished: matches.length, submitted, failed, results });
+  } catch (e: any) {
+    console.error("[/wc/sync]", e?.stack ?? e);
+    return res.status(500).json({ ok: false, error: e?.message });
   }
 });
 
@@ -595,6 +1181,116 @@ app.post("/test/submit-result", async (_req, res) => {
    ============================================================ */
 
 /**
+ * POST /bolao/register-phase
+ * Body: { name: string, start_time: number (ms), end_time: number (ms), points_weight: number }
+ * Registers a new tournament phase in BolaoCore. Admin-only on-chain.
+ */
+app.post("/bolao/register-phase", async (req, res) => {
+  try {
+    const name = String(req.body?.name ?? "").trim();
+    const startTime = Number(req.body?.start_time);
+    const endTime = Number(req.body?.end_time);
+    const pointsWeight = Number(req.body?.points_weight ?? 1);
+
+    if (!name) throw new Error("name is required");
+    if (!Number.isFinite(startTime) || startTime <= 0) throw new Error("start_time must be a positive timestamp in ms");
+    if (!Number.isFinite(endTime) || endTime <= 0) throw new Error("end_time must be a positive timestamp in ms");
+    if (endTime <= startTime) throw new Error("end_time must be greater than start_time");
+    if (!Number.isInteger(pointsWeight) || pointsWeight <= 0) throw new Error("points_weight must be a positive integer");
+
+    const api = await getApi();
+    const signer = getGatewaySigner();
+    const bolao = getBolao(api);
+
+    const tx = bolao.service.registerPhase(name, BigInt(startTime), BigInt(endTime), pointsWeight);
+    const result = await sendTx(tx, signer, "registerPhase");
+
+    return res.json({ ok: true, name, start_time: startTime, end_time: endTime, points_weight: pointsWeight, result });
+  } catch (e: any) {
+    console.error("[/bolao/register-phase]", e?.stack ?? e);
+    return res.status(400).json({ ok: false, error: e?.message });
+  }
+});
+
+/**
+ * POST /bolao/register-match
+ * Body: { home_team: string, away_team: string, kick_off: number (ms), phase: string }
+ * Registers a new match in BolaoCore so users can place bets.
+ * The contract auto-assigns the match_id (auto-incremented) — do not pass match_id here.
+ */
+app.post("/bolao/register-match", async (req, res) => {
+  try {
+    const homeTeam = String(req.body?.home_team ?? "").trim();
+    const awayTeam = String(req.body?.away_team ?? "").trim();
+    const kickOff = Number(req.body?.kick_off);
+    const phase = String(req.body?.phase ?? "").trim();
+
+    if (!homeTeam) throw new Error("home_team is required");
+    if (!awayTeam) throw new Error("away_team is required");
+    if (!Number.isFinite(kickOff) || kickOff <= 0) throw new Error("kick_off must be a positive timestamp in ms");
+    if (!phase) throw new Error("phase is required");
+
+    const api = await getApi();
+    const signer = getGatewaySigner();
+    const bolao = getBolao(api);
+
+    const tx = bolao.service.registerMatch(phase, homeTeam, awayTeam, BigInt(kickOff));
+    const result = await sendTx(tx, signer, "registerMatch");
+
+    return res.json({ ok: true, home_team: homeTeam, away_team: awayTeam, kick_off: kickOff, phase, result });
+  } catch (e: any) {
+    console.error("[/bolao/register-match]", e?.stack ?? e);
+    return res.status(400).json({ ok: false, error: e?.message });
+  }
+});
+
+/**
+ * POST /bolao/cancel-proposed-result
+ * Body: { match_id: number }
+ * Admin-only — cancels a Proposed result so it can be re-proposed with correct data.
+ */
+app.post("/bolao/cancel-proposed-result", async (req, res) => {
+  try {
+    const matchId = asMatchId(req.body?.match_id, "match_id");
+
+    const api = await getApi();
+    const signer = getGatewaySigner();
+    const bolao = getBolao(api);
+
+    const tx = bolao.service.cancelProposedResult(matchId);
+    const result = await sendTx(tx, signer, "cancelProposedResult");
+
+    return res.json({ ok: true, match_id: Number(matchId), result });
+  } catch (e: any) {
+    console.error("[/bolao/cancel-proposed-result]", e?.stack ?? e);
+    return res.status(400).json({ ok: false, error: e?.message });
+  }
+});
+
+/**
+ * POST /bolao/finalize-result
+ * Body: { match_id: number }
+ * Permissionless — executes after the 2-min challenge window expires.
+ */
+app.post("/bolao/finalize-result", async (req, res) => {
+  try {
+    const matchId = asMatchId(req.body?.match_id, "match_id");
+
+    const api = await getApi();
+    const signer = getGatewaySigner();
+    const bolao = getBolao(api);
+
+    const tx = bolao.service.finalizeResult(matchId);
+    const result = await sendTx(tx, signer, "finalizeResult");
+
+    return res.json({ ok: true, match_id: Number(matchId), result });
+  } catch (e: any) {
+    console.error("[/bolao/finalize-result]", e?.stack ?? e);
+    return res.status(400).json({ ok: false, error: e?.message });
+  }
+});
+
+/**
  * POST /bolao/propose-from-oracle
  * Body: { match_id: number }
  *
@@ -626,11 +1322,553 @@ app.post("/bolao/propose-from-oracle", async (req, res) => {
   }
 });
 
+/**
+ * POST /bolao/add-admin
+ * Body: { new_admin: "SS58 or 0x..." }
+ * Adds a new admin to BolaoCore. Signed with GATEWAY_SEED (must be an existing admin).
+ */
+app.post("/bolao/add-admin", async (req, res) => {
+  try {
+    const newAdmin = asActorId(req.body?.new_admin, "new_admin");
+    const api = await getApi();
+    const signer = getGatewaySigner();
+    const bolao = getBolao(api);
+    const tx = bolao.service.addAdmin(newAdmin);
+    const result = await sendTx(tx, signer, "addAdmin");
+    return res.json({ ok: true, new_admin: newAdmin, result });
+  } catch (e: any) {
+    console.error("[/bolao/add-admin]", e?.stack ?? e);
+    return res.status(400).json({ ok: false, error: e?.message });
+  }
+});
+
+/**
+ * POST /bolao/remove-admin
+ * Body: { admin: "SS58 or 0x..." }
+ * Removes an admin from BolaoCore. Cannot remove the last admin.
+ * Signed with GATEWAY_SEED (must be an existing admin).
+ */
+app.post("/bolao/remove-admin", async (req, res) => {
+  try {
+    const admin = asActorId(req.body?.admin, "admin");
+    const api = await getApi();
+    const signer = getGatewaySigner();
+    const bolao = getBolao(api);
+    const tx = bolao.service.removeAdmin(admin);
+    const result = await sendTx(tx, signer, "removeAdmin");
+    return res.json({ ok: true, admin, result });
+  } catch (e: any) {
+    console.error("[/bolao/remove-admin]", e?.stack ?? e);
+    return res.status(400).json({ ok: false, error: e?.message });
+  }
+});
+
+/**
+ * POST /bolao/add-operator
+ * Body: { operator: "SS58 or 0x..." }
+ * Grants operator role in BolaoCore (can register phases and matches).
+ * Admin-only — signed with GATEWAY_SEED.
+ */
+app.post("/bolao/add-operator", async (req, res) => {
+  try {
+    const operator = asActorId(req.body?.operator, "operator");
+    const api = await getApi();
+    const signer = getGatewaySigner();
+    const bolao = getBolao(api);
+    const tx = bolao.service.addOperator(operator);
+    const result = await sendTx(tx, signer, "bolao:addOperator");
+    return res.json({ ok: true, operator, result });
+  } catch (e: any) {
+    console.error("[/bolao/add-operator]", e?.stack ?? e);
+    return res.status(400).json({ ok: false, error: e?.message });
+  }
+});
+
+/**
+ * POST /bolao/remove-operator
+ * Body: { operator: "SS58 or 0x..." }
+ * Revokes operator role in BolaoCore.
+ * Admin-only — signed with GATEWAY_SEED.
+ */
+app.post("/bolao/remove-operator", async (req, res) => {
+  try {
+    const operator = asActorId(req.body?.operator, "operator");
+    const api = await getApi();
+    const signer = getGatewaySigner();
+    const bolao = getBolao(api);
+    const tx = bolao.service.removeOperator(operator);
+    const result = await sendTx(tx, signer, "bolao:removeOperator");
+    return res.json({ ok: true, operator, result });
+  } catch (e: any) {
+    console.error("[/bolao/remove-operator]", e?.stack ?? e);
+    return res.status(400).json({ ok: false, error: e?.message });
+  }
+});
+
+/**
+ * POST /bolao/set-treasury
+ * Body: { treasury: "SS58 or 0x..." }
+ * Updates the treasury address in BolaoCore. All protocol fees and dust are sent here.
+ * Admin-only — signed with GATEWAY_SEED.
+ */
+app.post("/bolao/set-treasury", async (req, res) => {
+  try {
+    const treasury = asActorId(req.body?.treasury, "treasury");
+    const api = await getApi();
+    const signer = getGatewaySigner();
+    const bolao = getBolao(api);
+    const tx = bolao.service.setTreasury(treasury);
+    const result = await sendTx(tx, signer, "setTreasury");
+    return res.json({ ok: true, treasury, result });
+  } catch (e: any) {
+    console.error("[/bolao/set-treasury]", e?.stack ?? e);
+    return res.status(400).json({ ok: false, error: e?.message });
+  }
+});
+
+/* ============================================================
+   SETUP — operator-signed registration (BolaoCore + Oracle-Program)
+
+   These endpoints use OPERATOR_SEED so the privileged GATEWAY_SEED
+   (feeder / admin key) is not needed for routine tournament setup.
+
+   Prerequisite: the operator account must be added to both contracts
+   via /bolao/add-operator and /oracle/add-operator first.
+   ============================================================ */
+
+/**
+ * POST /setup/register-phase
+ * Body: { name: string, start_time: number (ms), end_time: number (ms), points_weight: number }
+ * Registers a new tournament phase in BolaoCore using the OPERATOR_SEED account.
+ * Equivalent to /bolao/register-phase but signed by the operator, not the admin.
+ */
+app.post("/setup/register-phase", async (req, res) => {
+  try {
+    const name = String(req.body?.name ?? "").trim();
+    const startTime = Number(req.body?.start_time);
+    const endTime = Number(req.body?.end_time);
+    const pointsWeight = Number(req.body?.points_weight ?? 1);
+
+    if (!name) throw new Error("name is required");
+    if (!Number.isFinite(startTime) || startTime <= 0) throw new Error("start_time must be a positive timestamp in ms");
+    if (!Number.isFinite(endTime) || endTime <= 0) throw new Error("end_time must be a positive timestamp in ms");
+    if (endTime <= startTime) throw new Error("end_time must be greater than start_time");
+    if (!Number.isInteger(pointsWeight) || pointsWeight <= 0) throw new Error("points_weight must be a positive integer");
+
+    const api = await getApi();
+    const signer = getOperatorSigner();
+    const bolao = getBolao(api);
+
+    const tx = bolao.service.registerPhase(name, BigInt(startTime), BigInt(endTime), pointsWeight);
+    const result = await sendTx(tx, signer, "setup:registerPhase");
+
+    return res.json({ ok: true, name, start_time: startTime, end_time: endTime, points_weight: pointsWeight, result });
+  } catch (e: any) {
+    console.error("[/setup/register-phase]", e?.stack ?? e);
+    return res.status(400).json({ ok: false, error: e?.message });
+  }
+});
+
+/**
+ * POST /setup/register-match
+ * Body: {
+ *   phase: string,
+ *   home_team: string,
+ *   away_team: string,
+ *   kick_off: number (ms),
+ *   oracle_match_id: number   ← football-data.org match ID, registered in Oracle-Program
+ * }
+ *
+ * Atomically registers the match in BOTH contracts using the OPERATOR_SEED account:
+ *   1. BolaoCore.registerMatch — auto-assigns an internal match_id
+ *   2. Oracle.registerMatch(oracle_match_id) — registers the football-data.org ID
+ *
+ * The caller must track the BolaoCore match_id ↔ oracle_match_id mapping.
+ * Use /bolao/propose-from-oracle with the BolaoCore match_id to trigger settlement;
+ * BolaoCore will query Oracle using the oracle_match_id stored in the match entry.
+ *
+ * If Oracle registration fails after BolaoCore succeeds, call /oracle/register-match
+ * manually with oracle_match_id to complete the setup.
+ */
+app.post("/setup/register-match", async (req, res) => {
+  try {
+    const phase = String(req.body?.phase ?? "").trim();
+    const homeTeam = String(req.body?.home_team ?? "").trim();
+    const awayTeam = String(req.body?.away_team ?? "").trim();
+    const kickOff = Number(req.body?.kick_off);
+    const oracleMatchIdRaw = req.body?.oracle_match_id;
+
+    if (!phase) throw new Error("phase is required");
+    if (!homeTeam) throw new Error("home_team is required");
+    if (!awayTeam) throw new Error("away_team is required");
+    if (!Number.isFinite(kickOff) || kickOff <= 0) throw new Error("kick_off must be a positive timestamp in ms");
+
+    const oracleMatchId = asMatchId(oracleMatchIdRaw, "oracle_match_id");
+
+    const api = await getApi();
+    const signer = getOperatorSigner();
+    const bolao = getBolao(api);
+    const oracle = getOracle(api);
+
+    // Step 1: register match in BolaoCore (operator-signed, auto-assigns internal match_id)
+    const bolaoTx = bolao.service.registerMatch(phase, homeTeam, awayTeam, BigInt(kickOff));
+    const bolaoResult = await sendTx(bolaoTx, signer, "setup:bolao:registerMatch");
+    console.log(`[setup/register-match] BolaoCore registered: ${homeTeam} vs ${awayTeam}`);
+
+    // Step 2: register the oracle_match_id in Oracle-Program with the same metadata
+    const oracleTx = oracle.service.registerMatch(oracleMatchId, phase, homeTeam, awayTeam, BigInt(kickOff));
+    const oracleResult = await sendTx(oracleTx, signer, `setup:oracle:registerMatch:${Number(oracleMatchId)}`);
+    console.log(`[setup/register-match] Oracle registered oracle_match_id=${Number(oracleMatchId)}`);
+
+    return res.json({
+      ok: true,
+      phase,
+      home_team: homeTeam,
+      away_team: awayTeam,
+      kick_off: kickOff,
+      oracle_match_id: Number(oracleMatchId),
+      bolao_result: bolaoResult,
+      oracle_result: oracleResult,
+    });
+  } catch (e: any) {
+    console.error("[/setup/register-match]", e?.stack ?? e);
+    return res.status(400).json({ ok: false, error: e?.message });
+  }
+});
+
+/**
+ * GET /setup/match-mapping
+ * Returns the current sequential-bolaoMatchId ↔ sportsApiId mapping in memory.
+ */
+app.get("/setup/match-mapping", (_req, res) => {
+  const entries: Array<{ bolao_match_id: number; sports_api_id: number }> = [];
+  matchIdToSportsId.forEach((sportsId, bolaoId) => {
+    entries.push({ bolao_match_id: bolaoId, sports_api_id: sportsId });
+  });
+  entries.sort((a, b) => a.bolao_match_id - b.bolao_match_id);
+  return res.json({ ok: true, count: entries.length, mapping: entries });
+});
+
+/**
+ * POST /match/register-both
+ * Registers a match in BOTH BolaoCore AND Oracle with the same sequential ID,
+ * then persists the sports_api_id → sequential mapping for the auto-feeder.
+ *
+ * Body: {
+ *   phase: string,
+ *   home_team: string,
+ *   away_team: string,
+ *   kick_off: number (ms timestamp),
+ *   sports_api_id: number,   // football-data.org match ID (used for auto-feed result fetch)
+ *   next_bolao_id: number,   // next sequential ID BolaoCore will assign (check BolaoCore tab)
+ * }
+ *
+ * ID contract:
+ *   BolaoCore auto-assigns next_bolao_id (sequential internal counter)
+ *   Oracle is registered with oracle_match_id = next_bolao_id  (same sequential ID!)
+ *   Mapping stored: next_bolao_id → sports_api_id
+ *
+ * This ensures the full automated pipeline works:
+ *   auto-feed  → oracle pending [next_bolao_id] → mapping → sports_api_id → football-data.org
+ *   bridge     → ConsensusReached(next_bolao_id) → proposeFromOracle(next_bolao_id) → BolaoCore OK
+ */
+app.post("/match/register-both", async (req, res) => {
+  try {
+    const phase       = String(req.body?.phase      ?? "").trim();
+    const homeTeam    = String(req.body?.home_team  ?? "").trim();
+    const awayTeam    = String(req.body?.away_team  ?? "").trim();
+    const kickOff     = Number(req.body?.kick_off);
+    const sportsApiId = Number(req.body?.sports_api_id);
+    const nextBolaoId = Number(req.body?.next_bolao_id);
+
+    if (!phase)                                          throw new Error("phase is required");
+    if (!homeTeam)                                       throw new Error("home_team is required");
+    if (!awayTeam)                                       throw new Error("away_team is required");
+    if (!Number.isFinite(kickOff) || kickOff <= 0)       throw new Error("kick_off must be a positive ms timestamp");
+    if (!Number.isFinite(sportsApiId) || sportsApiId<=0) throw new Error("sports_api_id must be a positive integer");
+    if (!Number.isInteger(nextBolaoId) || nextBolaoId<1) throw new Error("next_bolao_id must be >= 1");
+
+    const api    = await getApi();
+    const signer = getOperatorSigner();
+    const bolao  = getBolao(api);
+    const oracle = getOracle(api);
+
+    // Step 1: BolaoCore — auto-assigns the sequential nextBolaoId internally
+    const bolaoTx = bolao.service.registerMatch(phase, homeTeam, awayTeam, BigInt(kickOff));
+    const bolaoResult = await sendTx(bolaoTx, signer, `register-both:bolao:${nextBolaoId}`);
+    console.log(`[/match/register-both] BolaoCore match ${nextBolaoId}: ${homeTeam} vs ${awayTeam}`);
+
+    // Step 2: Oracle — registered with the SAME sequential ID (NOT the sports API ID)
+    const oracleTx = oracle.service.registerMatch(
+      BigInt(nextBolaoId), phase, homeTeam, awayTeam, BigInt(kickOff),
+    );
+    const oracleResult = await sendTx(oracleTx, signer, `register-both:oracle:${nextBolaoId}`);
+    console.log(`[/match/register-both] Oracle match ${nextBolaoId} → sportsApiId=${sportsApiId}`);
+
+    // Step 3: Persist mapping so auto-feeder can resolve the sports API match
+    addMatchMapping(nextBolaoId, sportsApiId);
+    addKickOff(nextBolaoId, kickOff);
+    saveMatchMapping();
+    saveKickOffMap();
+    console.log(`[/match/register-both] Mapping saved: ${nextBolaoId} → ${sportsApiId}`);
+
+    return res.json({
+      ok: true,
+      bolao_match_id:  nextBolaoId,
+      oracle_match_id: nextBolaoId,
+      sports_api_id:   sportsApiId,
+      phase,
+      home_team:  homeTeam,
+      away_team:  awayTeam,
+      kick_off:   kickOff,
+      bolao_result: bolaoResult,
+      oracle_result: oracleResult,
+    });
+  } catch (e: any) {
+    console.error("[/match/register-both]", e?.stack ?? e);
+    return res.status(400).json({ ok: false, error: e?.message });
+  }
+});
+
+/**
+ * POST /setup/sync-tournament
+ *
+ * Fully automates WC 2026 tournament registration for ONE phase:
+ *   1. Fetches all WC fixtures from football-data.org (cached 5 min)
+ *   2. Filters by stage and/or status
+ *   3. Sorts by kick-off time (ascending) for deterministic ID assignment
+ *   4. Registers the phase in BolaoCore (operator-signed)
+ *   5. For each match in order:
+ *        a. Registers in BolaoCore → auto-assigned sequential ID
+ *        b. Registers in Oracle-Program with the SAME sequential ID
+ *        c. Records the bolaoMatchId ↔ sportsApiId mapping
+ *   6. Persists the mapping to ./data/match-mapping.json
+ *
+ * Body:
+ *   phase_name:      string   — phase name in BolaoCore (required)
+ *   points_weight:   number   — phase points weight (default: 1)
+ *   start_time:      number   — phase start timestamp in ms (required)
+ *   end_time:        number   — phase end timestamp in ms (required)
+ *   stage_filter?:   string   — filter by football-data.org stage, e.g. "GROUP_STAGE"
+ *                              empty / omitted = no stage filter
+ *   status_filter?:  string   — "SCHEDULED" (default, includes TIMED) | "ALL"
+ *   bolao_next_id:   number   — expected next BolaoCore match_id (default: 1).
+ *                              Must match BolaoCore's next_match_id counter exactly.
+ *   dry_run?:        boolean  — preview without sending transactions
+ *
+ * Notes:
+ *   - The operator account must already have been added to both contracts
+ *     via /bolao/add-operator and /oracle/add-operator.
+ *   - Run with dry_run:true first to verify the fixture list and ID range.
+ *   - If the server restarts the mapping is reloaded from disk automatically.
+ */
+app.post("/setup/sync-tournament", async (req, res) => {
+  try {
+    // ── Input validation ─────────────────────────────────────────────────
+    const phaseName    = String(req.body?.phase_name ?? "").trim();
+    const pointsWeight = Number(req.body?.points_weight ?? 1);
+    const startTime    = Number(req.body?.start_time);
+    const endTime      = Number(req.body?.end_time);
+    const stageFilter  = String(req.body?.stage_filter ?? "").trim().toUpperCase();
+    const statusFilter = String(req.body?.status_filter ?? "SCHEDULED").trim().toUpperCase();
+    const bolaoNextId  = Number(req.body?.bolao_next_id ?? 1);
+    const dryRun       = req.body?.dry_run === true;
+
+    if (!phaseName) throw new Error("phase_name is required");
+    if (!Number.isFinite(startTime) || startTime <= 0) throw new Error("start_time is required (Unix ms)");
+    if (!Number.isFinite(endTime)   || endTime   <= 0) throw new Error("end_time is required (Unix ms)");
+    if (endTime <= startTime) throw new Error("end_time must be after start_time");
+    if (!Number.isInteger(pointsWeight) || pointsWeight <= 0) throw new Error("points_weight must be a positive integer");
+    if (!Number.isInteger(bolaoNextId)  || bolaoNextId  <  1) throw new Error("bolao_next_id must be >= 1");
+
+    // ── Fetch and filter fixtures ────────────────────────────────────────
+    const allFixtures = await fetchWCFixtures();
+
+    const availableStages = [...new Set(allFixtures.map((m) => m.stage))].sort();
+
+    // stage_filter is required for live runs to prevent accidentally registering
+    // matches from other phases under the same phase name.
+    if (!stageFilter && !dryRun) {
+      return res.status(400).json({
+        ok: false,
+        error: "stage_filter is required. Without it, ALL fixtures from every stage would be registered under the same phase, mixing phases.",
+        available_stages: availableStages,
+        hint: "Set stage_filter to one of the available stages and run with dry_run:true first to preview.",
+      });
+    }
+
+    const fixtures = allFixtures.filter((m) => {
+      // Stage filter (case-insensitive exact match against football-data.org stage field)
+      if (stageFilter && m.stage.toUpperCase() !== stageFilter) return false;
+      // Status filter: "SCHEDULED" accepts both SCHEDULED and TIMED (upcoming)
+      if (statusFilter !== "ALL") {
+        const s = m.status.toUpperCase();
+        if (statusFilter === "SCHEDULED") {
+          if (s !== "SCHEDULED" && s !== "TIMED") return false;
+        } else {
+          if (s !== statusFilter) return false;
+        }
+      }
+      return true;
+    });
+
+    // Sort by kick-off time — BolaoCore ID assignment order must be deterministic
+    fixtures.sort((a, b) => new Date(a.utcDate).getTime() - new Date(b.utcDate).getTime());
+
+    // Detect mixed stages in the result set (can happen if stage_filter was broad)
+    const fixtureStages = [...new Set(fixtures.map((m) => m.stage))];
+    const mixedStages = fixtureStages.length > 1;
+
+    if (fixtures.length === 0) {
+      return res.json({
+        ok: true, dry_run: dryRun,
+        message: "No fixtures matched the filter criteria. Check stage_filter / status_filter.",
+        total_available: allFixtures.length,
+        available_stages: availableStages,
+        phase: null, matches_registered: 0, matches: [],
+      });
+    }
+
+    // Build the work list with pre-assigned sequential IDs
+    type MatchEntry = {
+      bolao_match_id: number;
+      sports_api_id:  number;
+      stage:          string;
+      home_team:      string;
+      away_team:      string;
+      kick_off:       number;
+      kick_off_utc:   string;
+    };
+
+    const matchList: MatchEntry[] = fixtures.map((m, i) => ({
+      bolao_match_id: bolaoNextId + i,
+      sports_api_id:  m.id,
+      stage:          m.stage,
+      home_team:      m.homeTeam.name,
+      away_team:      m.awayTeam.name,
+      kick_off:       new Date(m.utcDate).getTime(),
+      kick_off_utc:   m.utcDate,
+    }));
+
+    const idRange = `${bolaoNextId}–${bolaoNextId + matchList.length - 1}`;
+
+    // ── Dry run: return preview without touching the chain ───────────────
+    if (dryRun) {
+      return res.json({
+        ok: true, dry_run: true,
+        phase: phaseName
+          ? { name: phaseName, start_time: startTime, end_time: endTime, points_weight: pointsWeight }
+          : null,
+        stage_filter: stageFilter || null,
+        available_stages: availableStages,
+        matched_stages: fixtureStages,
+        mixed_stages_warning: mixedStages
+          ? `Multiple stages found: ${fixtureStages.join(", ")}. Use a more specific stage_filter.`
+          : undefined,
+        total_fixtures: matchList.length,
+        bolao_id_range: idRange,
+        matches: matchList,
+      });
+    }
+
+    // ── Live run ─────────────────────────────────────────────────────────
+    const api    = await getApi();
+    const signer = getOperatorSigner();
+    const bolao  = getBolao(api);
+    const oracle = getOracle(api);
+
+    // Step 1 — Register phase in BolaoCore
+    const phaseTx = bolao.service.registerPhase(phaseName, BigInt(startTime), BigInt(endTime), pointsWeight);
+    await sendTx(phaseTx, signer, `sync:registerPhase:${phaseName}`);
+    console.log(`[sync-tournament] Phase "${phaseName}" registered in BolaoCore`);
+
+    // Step 2 — Register each match
+    type MatchResult = MatchEntry & { bolao_ok: boolean; oracle_ok: boolean; error?: string };
+    const results: MatchResult[] = [];
+
+    for (const entry of matchList) {
+      let bolaoOk = false;
+      let oracleOk = false;
+      let errMsg: string | undefined;
+
+      try {
+        // 2a — BolaoCore: auto-assigns entry.bolao_match_id (relies on sequential counter)
+        const bolaoTx = bolao.service.registerMatch(
+          phaseName, entry.home_team, entry.away_team, BigInt(entry.kick_off),
+        );
+        await sendTx(bolaoTx, signer, `sync:bolao:match:${entry.bolao_match_id}`);
+        bolaoOk = true;
+        console.log(`[sync-tournament] BolaoCore match ${entry.bolao_match_id}: ${entry.home_team} vs ${entry.away_team}`);
+      } catch (e: any) {
+        errMsg = `BolaoCore: ${e?.message}`;
+        console.error(`[sync-tournament] BolaoCore match ${entry.bolao_match_id} failed:`, e?.message);
+      }
+
+      if (bolaoOk) {
+        try {
+          // 2b — Oracle-Program: same sequential ID + same metadata as BolaoCore
+          const oracleTx = oracle.service.registerMatch(
+            BigInt(entry.bolao_match_id),
+            phaseName,
+            entry.home_team,
+            entry.away_team,
+            BigInt(entry.kick_off),
+          );
+          await sendTx(oracleTx, signer, `sync:oracle:match:${entry.bolao_match_id}`);
+          oracleOk = true;
+          console.log(`[sync-tournament] Oracle    match ${entry.bolao_match_id}: sportsApiId=${entry.sports_api_id}`);
+        } catch (e: any) {
+          errMsg = `Oracle: ${e?.message}`;
+          console.error(`[sync-tournament] Oracle match ${entry.bolao_match_id} failed:`, e?.message);
+        }
+      }
+
+      if (bolaoOk && oracleOk) {
+        addMatchMapping(entry.bolao_match_id, entry.sports_api_id);
+        addKickOff(entry.bolao_match_id, entry.kick_off);
+      }
+
+      results.push({ ...entry, bolao_ok: bolaoOk, oracle_ok: oracleOk, error: errMsg });
+    }
+
+    // Persist mappings to disk
+    saveMatchMapping();
+    saveKickOffMap();
+
+    const registered = results.filter((r) => r.bolao_ok && r.oracle_ok).length;
+    const failed     = results.filter((r) => !r.bolao_ok || !r.oracle_ok).length;
+
+    console.log(`[sync-tournament] Done — ${registered} registered, ${failed} failed`);
+
+    return res.json({
+      ok: failed === 0,
+      dry_run: false,
+      phase: { name: phaseName, start_time: startTime, end_time: endTime, points_weight: pointsWeight },
+      stage_filter: stageFilter,
+      mixed_stages_warning: mixedStages
+        ? `Multiple stages were registered under phase "${phaseName}": ${fixtureStages.join(", ")}`
+        : undefined,
+      total_fixtures: fixtures.length,
+      registered,
+      failed,
+      bolao_id_range: idRange,
+      results,
+    });
+
+  } catch (e: any) {
+    console.error("[/setup/sync-tournament]", e?.stack ?? e);
+    return res.status(400).json({ ok: false, error: e?.message });
+  }
+});
+
 /* ============================================================
    AUTO-FEEDER (background scheduler)
    Polls pending oracle matches, fetches results from sports API,
    and submits them automatically.
    ============================================================ */
+// Max API requests per auto-feed cycle — stays safely under the 10 req/min free-tier limit
+const AUTO_FEED_BATCH_SIZE = intEnv("AUTO_FEED_BATCH_SIZE", 8);
+
 async function runAutoFeed(): Promise<void> {
   try {
     const api = await getApi();
@@ -640,14 +1878,48 @@ async function runAutoFeed(): Promise<void> {
     const pending = await oracle.service.queryPendingMatches();
     if (pending.length === 0) return;
 
-    console.log(`[auto-feed] ${pending.length} pending match(es):`, pending.map(Number));
+    const now = Date.now();
+    console.log(`[auto-feed] now=${now} (${new Date(now).toISOString()})`);
+    console.log(`[auto-feed] kickOffMap entries: ${kickOffMap.size}`);
+    kickOffMap.forEach((ko, id) => {
+      console.log(`[auto-feed]   match ${id}: kick_off=${ko} (${new Date(ko).toISOString()}) started=${ko <= now}`);
+    });
 
-    for (const rawId of pending) {
+    // Sort: matches that have already started (kick_off <= now) first, then by kick_off asc.
+    // Matches with no kick_off in the map are treated as future — sorted last and excluded.
+    const sorted = [...pending].sort((a, b) => {
+      const aKo = kickOffMap.get(Number(BigInt(a as any))) ?? Number.MAX_SAFE_INTEGER;
+      const bKo = kickOffMap.get(Number(BigInt(b as any))) ?? Number.MAX_SAFE_INTEGER;
+      const aStarted = aKo <= now;
+      const bStarted = bKo <= now;
+      if (aStarted && !bStarted) return -1;
+      if (!aStarted && bStarted) return 1;
+      return aKo - bKo;
+    });
+
+    // Only process matches with a known kick_off that has already passed.
+    // Matches without kick_off data are skipped — they were registered before kickOffMap existed.
+    const toProcess = sorted
+      .filter((rawId) => {
+        const ko = kickOffMap.get(Number(BigInt(rawId as any)));
+        return ko !== undefined && ko <= now;
+      })
+      .slice(0, AUTO_FEED_BATCH_SIZE);
+
+    const skipped = pending.length - sorted.filter((rawId) => {
+      const ko = kickOffMap.get(Number(BigInt(rawId as any)));
+      return ko !== undefined && ko <= now;
+    }).length;
+
+    console.log(`[auto-feed] ${pending.length} pending — ${toProcess.length} to process, ${skipped} skipped (not started)`);
+
+    for (const rawId of toProcess) {
       const matchId = BigInt(rawId as any);
       const numId = Number(matchId);
 
       try {
-        const sportMatch = await fetchSportMatch(numId);
+        const sportsId = matchIdToSportsId.get(numId) ?? numId;
+        const sportMatch = await fetchSportMatch(sportsId);
         const mapped = mapMatchToOracle(sportMatch);
 
         if (!mapped) {
@@ -669,6 +1941,78 @@ async function runAutoFeed(): Promise<void> {
 }
 
 /* ============================================================
+   FINALIZE HELPERS
+   ============================================================ */
+
+function scheduleFinalize(
+  bolao: ReturnType<typeof getBolao>,
+  signer: ReturnType<typeof getGatewaySigner>,
+  matchId: number,
+  delayMs: number,
+): void {
+  console.log(`[auto-finalize] match ${matchId} — scheduled in ${delayMs / 1000}s`);
+  setTimeout(async () => {
+    console.log(`[auto-finalize] match ${matchId} — calling finalizeResult`);
+    try {
+      const tx = bolao.service.finalizeResult(BigInt(matchId));
+      await sendTx(tx, signer, `auto-finalize:${matchId}`);
+      console.log(`[auto-finalize] ✓ match ${matchId} finalized — points distributed`);
+    } catch (e: any) {
+      console.error(`[auto-finalize] match ${matchId} finalize failed:`, e?.message);
+      console.warn(`[auto-finalize] retry manually: POST /bolao/finalize-result { match_id: ${matchId} }`);
+    }
+  }, Math.max(delayMs, 0));
+}
+
+async function recoverProposedMatches(
+  bolao: ReturnType<typeof getBolao>,
+  signer: ReturnType<typeof getGatewaySigner>,
+): Promise<void> {
+  console.log("[recover] scanning BolaoCore for stuck Proposed matches...");
+  let state;
+  try {
+    state = await bolao.service.queryState();
+  } catch (e: any) {
+    console.error("[recover] queryState failed:", e?.message);
+    return;
+  }
+
+  const now = Date.now();
+  let recovered = 0;
+  let scheduled = 0;
+
+  // Separate expired from pending to serialize expired TXs (avoid nonce collisions)
+  const expired: number[] = [];
+  for (const match of state.matches) {
+    if (typeof match.result !== 'object' || !('proposed' in match.result)) continue;
+    const { proposed_at } = match.result.proposed;
+    const expiresAt = Number(proposed_at) + CHALLENGE_WINDOW_MS;
+    const remaining = expiresAt + FINALIZE_BUFFER_MS - now;
+
+    if (remaining <= 0) {
+      console.log(`[recover] match ${match.match_id} — challenge window expired, queued for finalization`);
+      expired.push(Number(match.match_id));
+      recovered++;
+    } else {
+      console.log(`[recover] match ${match.match_id} — re-scheduling finalize in ${Math.round(remaining / 1000)}s`);
+      scheduleFinalize(bolao, signer, Number(match.match_id), remaining);
+      scheduled++;
+    }
+  }
+
+  // Process expired matches sequentially with a 3s gap to avoid nonce collisions
+  for (let i = 0; i < expired.length; i++) {
+    scheduleFinalize(bolao, signer, expired[i], i * 3_000);
+  }
+
+  if (recovered + scheduled === 0) {
+    console.log("[recover] no stuck Proposed matches found");
+  } else {
+    console.log(`[recover] done — ${recovered} immediate, ${scheduled} re-scheduled`);
+  }
+}
+
+/* ============================================================
    SERVER BOOT
    ============================================================ */
 const server = app.listen(PORT, () => {
@@ -677,6 +2021,10 @@ const server = app.listen(PORT, () => {
   console.log(`  Vara RPC       : ${VARA_WS}`);
   console.log(`  Sports API     : football-data.org / competition=${SPORTS_COMPETITION_CODE}`);
   console.log(`  Auto-feed      : every ${AUTO_FEED_INTERVAL_MS / 1000}s`);
+
+  // Load persistent match ID mapping (bolao sequential ID ↔ sports API ID)
+  loadMatchMapping();
+  loadKickOffMap();
 
   // Warm up GearApi connection and start ConsensusReached bridge
   getApi()
@@ -692,14 +2040,21 @@ const server = app.listen(PORT, () => {
       const bolao = getBolao(api);
       const signer = getGatewaySigner();
 
+      // Recover any matches stuck in Proposed state from a previous server run
+      recoverProposedMatches(bolao, signer).catch((e) =>
+        console.error("[recover] unhandled error:", e?.message),
+      );
+
       // Listen for Oracle ConsensusReached events and forward to BolaoCore
-      oracle.service.subscribeToConsensusReachedEvent(async (matchId, _score, _penaltyWinner) => {
-        const numId = Number(matchId);
+      oracle.service.subscribeToConsensusReachedEvent(async ({ match_id }) => {
+        const numId = Number(match_id);
         console.log(`[bridge] ConsensusReached for match ${numId} — triggering BolaoCore pull`);
         try {
-          const tx = bolao.service.proposeFromOracle(BigInt(matchId as any), ORACLE_PROGRAM_ID);
+          const tx = bolao.service.proposeFromOracle(BigInt(match_id as any), ORACLE_PROGRAM_ID);
           await sendTx(tx, signer, `bridge:proposeFromOracle:${numId}`);
           console.log(`[bridge] ✓ match ${numId} proposed in BolaoCore from Oracle`);
+
+          scheduleFinalize(bolao, signer, numId, CHALLENGE_WINDOW_MS + FINALIZE_BUFFER_MS);
         } catch (e: any) {
           console.error(`[bridge] match ${numId} propose failed:`, e?.message);
           console.warn(`[bridge] retry manually: POST /bolao/propose-from-oracle { match_id: ${numId} }`);
@@ -707,6 +2062,15 @@ const server = app.listen(PORT, () => {
       });
 
       console.log("[boot] ConsensusReached bridge active");
+
+      // Periodic scan for stuck Proposed matches (every 10 min)
+      const RECOVER_INTERVAL_MS = 10 * 60 * 1000;
+      setInterval(() => {
+        recoverProposedMatches(bolao, signer).catch((e) =>
+          console.error("[recover-scan] unhandled:", e?.message),
+        );
+      }, RECOVER_INTERVAL_MS);
+      console.log(`[boot] periodic recover-scan every ${RECOVER_INTERVAL_MS / 60_000} min`);
     })
     .catch((e) => console.error("[boot] GearApi init failed:", e?.message));
 

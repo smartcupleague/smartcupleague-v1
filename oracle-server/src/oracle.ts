@@ -22,6 +22,10 @@ export interface FinalResult {
 
 export interface IoMatchResult {
   match_id: number | string | bigint;
+  phase: string;
+  home: string;
+  away: string;
+  kick_off: number | string | bigint;
   status: OracleResultStatus;
   final_result: FinalResult | null;
   submissions: number;
@@ -29,6 +33,7 @@ export interface IoMatchResult {
 
 export interface IoOracleState {
   admin: ActorId;
+  operators: ActorId[];
   consensus_threshold: number;
   bolao_program_id: ActorId | null;
   authorized_feeders: ActorId[];
@@ -43,12 +48,17 @@ const types = {
   FinalResult: { score: 'Score', penalty_winner: 'Option<PenaltyWinner>', finalized_at: 'u64' },
   IoMatchResult: {
     match_id: 'u64',
+    phase: 'String',
+    home: 'String',
+    away: 'String',
+    kick_off: 'u64',
     status: 'OracleResultStatus',
     final_result: 'Option<FinalResult>',
     submissions: 'u32',
   },
   IoOracleState: {
     admin: '[u8;32]',
+    operators: 'Vec<[u8;32]>',
     consensus_threshold: 'u8',
     bolao_program_id: 'Option<[u8;32]>',
     authorized_feeders: 'Vec<[u8;32]>',
@@ -171,14 +181,46 @@ export class Service {
     );
   }
 
-  public registerMatch(match_id: number | string | bigint): TransactionBuilder<null> {
+  public registerMatch(
+    match_id: number | string | bigint,
+    phase: string,
+    home: string,
+    away: string,
+    kick_off: number | string | bigint,
+  ): TransactionBuilder<null> {
     if (!this._program.programId) throw new Error('Program ID is not set');
     return new TransactionBuilder<null>(
       this._program.api,
       this._program.registry,
       'send_message',
-      ['Service', 'RegisterMatch', match_id],
-      '(String, String, u64)',
+      ['Service', 'RegisterMatch', match_id, phase, home, away, kick_off],
+      '(String, String, u64, String, String, String, u64)',
+      'Null',
+      this._program.programId,
+    );
+  }
+
+  public addOperator(new_operator: ActorId): TransactionBuilder<null> {
+    if (!this._program.programId) throw new Error('Program ID is not set');
+    return new TransactionBuilder<null>(
+      this._program.api,
+      this._program.registry,
+      'send_message',
+      ['Service', 'AddOperator', new_operator],
+      '(String, String, [u8;32])',
+      'Null',
+      this._program.programId,
+    );
+  }
+
+  public removeOperator(operator: ActorId): TransactionBuilder<null> {
+    if (!this._program.programId) throw new Error('Program ID is not set');
+    return new TransactionBuilder<null>(
+      this._program.api,
+      this._program.registry,
+      'send_message',
+      ['Service', 'RemoveOperator', operator],
+      '(String, String, [u8;32])',
       'Null',
       this._program.programId,
     );
