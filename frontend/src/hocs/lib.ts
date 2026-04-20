@@ -556,7 +556,7 @@ export class Service {
     });
     if (!reply.code.isSuccess) throw new Error(this._program.registry.createType('String', reply.payload).toString());
     const result = this._program.registry.createType('(String, String, Vec<UserBetView>)', reply.payload);
-    return result[2].toJSON() as UserBetView[];
+    return result[2].toJSON() as unknown as UserBetView[];
   }
 
   public async queryFinalPrizeClaimStatus(
@@ -576,7 +576,7 @@ export class Service {
     });
     if (!reply.code.isSuccess) throw new Error(this._program.registry.createType('String', reply.payload).toString());
     const result = this._program.registry.createType('(String, String, FinalPrizeClaimStatus)', reply.payload);
-    return result[2].toJSON() as FinalPrizeClaimStatus;
+    return result[2].toJSON() as unknown as FinalPrizeClaimStatus;
   }
 
   public async queryMatch(
@@ -616,7 +616,7 @@ export class Service {
     });
     if (!reply.code.isSuccess) throw new Error(this._program.registry.createType('String', reply.payload).toString());
     const result = this._program.registry.createType('(String, String, Vec<Match>)', reply.payload);
-    return result[2].toJSON() as Match[];
+    return result[2].toJSON() as unknown as Match[];
   }
 
   public async queryState(
@@ -635,7 +635,7 @@ export class Service {
     });
     if (!reply.code.isSuccess) throw new Error(this._program.registry.createType('String', reply.payload).toString());
     const result = this._program.registry.createType('(String, String, IoSmartCupState)', reply.payload);
-    return result[2].toJSON() as IoSmartCupState;
+    return result[2].toJSON() as unknown as IoSmartCupState;
   }
 
   public async queryUserPoints(
@@ -675,7 +675,7 @@ export class Service {
     });
     if (!reply.code.isSuccess) throw new Error(this._program.registry.createType('String', reply.payload).toString());
     const result = this._program.registry.createType('(String, String, WalletClaimStatus)', reply.payload);
-    return result[2].toJSON() as WalletClaimStatus;
+    return result[2].toJSON() as unknown as WalletClaimStatus;
   }
 
   public subscribeToPhaseRegisteredEvent(

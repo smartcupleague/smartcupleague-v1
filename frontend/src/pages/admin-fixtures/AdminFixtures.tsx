@@ -2421,11 +2421,12 @@ export function AdminFixtures() {
   const fetchAllCounts = useCallback(async (bust = false) => {
     const statuses: TabStatus[] = ['SCHEDULED', 'IN_PLAY', 'FINISHED'];
     if (!bust && statuses.every((s) => countsCache[s] !== undefined)) {
-      setCounts({
+      setCounts((prev) => ({
+        ...prev,
         SCHEDULED: countsCache.SCHEDULED ?? 0,
         IN_PLAY: countsCache.IN_PLAY ?? 0,
         FINISHED: countsCache.FINISHED ?? 0,
-      });
+      }));
       return;
     }
     const settled = await Promise.allSettled(
