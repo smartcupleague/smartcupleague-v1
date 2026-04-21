@@ -392,7 +392,7 @@ export default function Home() {
     void fetchAll();
   }, [fetchAll]);
 
-  const tournamentName = 'World Cup 2026';
+  const tournamentName = 'League 2026';
 
   const sortedLeaderboard = useMemo(() => {
     const up = coreState?.user_points ?? [];
