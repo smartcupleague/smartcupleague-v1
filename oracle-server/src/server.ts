@@ -349,7 +349,12 @@ function mapMatchToOracle(
   const away = m.score.fullTime.away;
 
   let penalty_winner: PenaltyWinner | null = null;
-  if (home === away && m.score.penalties.home != null && m.score.penalties.away != null) {
+  if (
+    home === away &&
+    m.score.penalties.home != null &&
+    m.score.penalties.away != null &&
+    m.score.penalties.home !== m.score.penalties.away
+  ) {
     penalty_winner = m.score.penalties.home > m.score.penalties.away ? "Home" : "Away";
   }
 
@@ -1103,7 +1108,12 @@ app.post("/wc/sync", async (req, res) => {
       const home = m.score.fullTime.home;
       const away = m.score.fullTime.away;
       let penalty_winner: PenaltyWinner | null = null;
-      if (home === away && m.score.penalties.home != null && m.score.penalties.away != null) {
+      if (
+        home === away &&
+        m.score.penalties.home != null &&
+        m.score.penalties.away != null &&
+        m.score.penalties.home !== m.score.penalties.away
+      ) {
         penalty_winner = m.score.penalties.home > m.score.penalties.away ? "Home" : "Away";
       }
       eligible.push({ id: m.id, home_team: m.homeTeam.name, away_team: m.awayTeam.name, home, away, penalty_winner });
