@@ -419,6 +419,11 @@
   color: rgba(255,255,255,0.95);
 }
 
+.mpTabGroup {
+  display: flex;
+  gap: 8px;
+}
+
 .mpTab.is-active {
   border-color: rgba(255,46,118,0.38);
   background:

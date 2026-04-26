@@ -2,7 +2,7 @@ import React from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import './scb-dashboard.css';
 
-type SectionKey = 'progress' | 'my-predictions' | 'leaderboard' | 'all-matches' | 'dao';
+type SectionKey = 'progress' | 'my-predictions' | 'leaderboard' | 'all-matches' | 'dao' | 'admin-fixtures';
 
 interface NavItem {
   key: SectionKey;

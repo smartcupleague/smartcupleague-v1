@@ -5,7 +5,7 @@ import { useToast } from '@/hooks/useToast';
 import { web3Enable, web3FromSource } from '@polkadot/extension-dapp';
 import { Program, Service } from '@/hocs/lib';
 import { TransactionBuilder } from 'sails-js';
-import { TEAM_FLAGS } from '@/utils/teams';
+import { TeamFlag } from '@/components/common/TeamFlag';
 import { Header } from '../layout';
 
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM;
@@ -48,10 +48,20 @@ function normalizeTeamKey(team: string) {
   return (team || '').trim().toUpperCase().replace(/\s+/g, ' ');
 }
 
-function flagForTeam(team: string) {
-  const key = normalizeTeamKey(team);
-  return TEAM_FLAGS[key] || '/flags/default.png';
+const WC_PHASES = new Set([
+  'GROUP_STAGE', 'Group Stage', 'ROUND_OF_16', 'Round Of 16', 'Round of 16',
+  'QUARTER_FINALS', 'Quarter Finals', 'Quarter-finals',
+  'SEMI_FINALS', 'Semi Finals', 'Semi-finals',
+  'THIRD_PLACE', 'Third Place', 'FINAL', 'Final',
+]);
+
+function isWCPhase(phase: string): boolean {
+  if (WC_PHASES.has(phase)) return true;
+  const u = phase.toUpperCase();
+  return u.includes('GROUP') || u.includes('ROUND') || u.includes('QUARTER') ||
+    u.includes('SEMI') || u.includes('FINAL') || u.includes('KNOCKOUT');
 }
+
 
 function kickOffToMs(kickOff: string): number {
   const n = Number(kickOff);
@@ -245,7 +255,7 @@ export const QueryBetsByUserComponent: React.FC = () => {
   const [matches, setMatches] = useState<MatchInfo[] | null>(null);
   const [phases, setPhases] = useState<PhaseConfig[]>([]);
 
-  const [tab, setTab] = useState<'wc'>('wc');
+  const [tab, setTab] = useState<'leagues' | 'wc'>('leagues');
   const [search, setSearch] = useState('');
   const [filterStage, setFilterStage] = useState('');
   const [filterDate, setFilterDate] = useState('');
@@ -348,6 +358,16 @@ export const QueryBetsByUserComponent: React.FC = () => {
     return map;
   }, [matches]);
 
+  const tabCounts = useMemo(() => {
+    const all = bets ?? [];
+    const leagues = all.filter((b) => {
+      const phase = matchById.get(Number(b.match_id))?.phase ?? '';
+      return !isWCPhase(phase);
+    }).length;
+    const wc = all.length - leagues;
+    return { leagues, wc };
+  }, [bets, matchById]);
+
   // Unique phases for filter dropdown
   const availablePhases = useMemo(() => {
     const set = new Set<string>();
@@ -441,8 +461,15 @@ export const QueryBetsByUserComponent: React.FC = () => {
       list = [...list].sort((a, b) => Number(a.match_id) - Number(b.match_id));
     }
 
+    // Tab filter
+    list = list.filter((b) => {
+      const m = matchById.get(Number(b.match_id));
+      const phase = m?.phase ?? '';
+      return tab === 'wc' ? isWCPhase(phase) : !isWCPhase(phase);
+    });
+
     return list;
-  }, [bets, search, matchById, filterStage, filterDate, sortField, filterStatus, phases]);
+  }, [bets, search, matchById, filterStage, filterDate, sortField, filterStatus, phases, tab]);
 
   const claim = useCallback(
     async (matchId: number) => {
@@ -489,9 +516,20 @@ export const QueryBetsByUserComponent: React.FC = () => {
         </div>
 
         <div className="mpTabs">
-          <button className={'mpTab ' + (tab === 'wc' ? 'is-active' : '')} onClick={() => setTab('wc')} type="button">
-            World Cup 2026
-          </button>
+          <div className="mpTabGroup">
+            <button
+              className={'mpTab ' + (tab === 'leagues' ? 'is-active' : '')}
+              onClick={() => { setTab('leagues'); setFilterStage(''); }}
+              type="button">
+              Leagues {tabCounts.leagues > 0 ? `(${tabCounts.leagues})` : ''}
+            </button>
+            <button
+              className={'mpTab ' + (tab === 'wc' ? 'is-active' : '')}
+              onClick={() => { setTab('wc'); setFilterStage(''); }}
+              type="button">
+              World Cup 2026 {tabCounts.wc > 0 ? `(${tabCounts.wc})` : ''}
+            </button>
+          </div>
 
           <div className="mpSearch">
             <span className="mpSearch__icon" aria-hidden="true">
@@ -583,8 +621,8 @@ export const QueryBetsByUserComponent: React.FC = () => {
 
       <div className="mpSection">
         <div className="mpSection__title">
-          <div className="mpSection__main">World Cup 2026</div>
-          <div className="mpSection__sub">Knockout Stage</div>
+          <div className="mpSection__main">{tab === 'wc' ? 'World Cup 2026' : 'Leagues'}</div>
+          <div className="mpSection__sub">{tab === 'wc' ? 'All phases' : 'Current season matches'}</div>
         </div>
 
         {!connected ? (
@@ -601,8 +639,8 @@ export const QueryBetsByUserComponent: React.FC = () => {
               <div className="mpCard__left">
                 <span className="mpCup">🏆</span>
                 <div className="mpCard__ttl">
-                  <div className="t">World Cup 2026</div>
-                  <div className="s">Knockout Stage</div>
+                  <div className="t">{tab === 'wc' ? 'World Cup 2026' : 'Leagues'}</div>
+                  <div className="s">{tab === 'wc' ? 'All phases' : 'Current season matches'}</div>
                 </div>
               </div>
 
@@ -705,7 +743,7 @@ export const QueryBetsByUserComponent: React.FC = () => {
                           <div className="mpMatch__main">
                             <div className="mpTeams" title={`${home} vs ${away}`}>
                               <span className="mpTeam">
-                                <img className="mpFlag" src={flagForTeam(home)} alt={`${home} flag`} />
+                                <TeamFlag className="mpFlag" team={home} />
                                 <span className="mpName">{home}</span>
                               </span>
 
@@ -713,7 +751,7 @@ export const QueryBetsByUserComponent: React.FC = () => {
 
                               <span className="mpTeam mpTeam--right">
                                 <span className="mpName">{away}</span>
-                                <img className="mpFlag" src={flagForTeam(away)} alt={`${away} flag`} />
+                                <TeamFlag className="mpFlag" team={away} />
                               </span>
 
                               <span className={'mpTag mpTag--' + current.tag.toLowerCase()}>{current.tag}</span>

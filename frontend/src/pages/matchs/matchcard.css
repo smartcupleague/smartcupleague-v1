@@ -201,8 +201,8 @@
 }
 
 .mcx__flagLg {
-  width: 88px;
-  height: 58px;
+  width: 120px;
+  height: 80px;
   border-radius: 14px;
   object-fit: cover;
   border: 1px solid rgba(255, 255, 255, 0.20);
@@ -333,8 +333,8 @@
 }
 
 .mcx__flagSm {
-  width: 34px;
-  height: 22px;
+  width: 44px;
+  height: 30px;
   border-radius: 6px;
   object-fit: cover;
   border: 1px solid rgba(255, 255, 255, 0.16);

@@ -8,6 +8,7 @@ import { u8aToHex } from '@polkadot/util';
 import { Program, Service } from '@/hocs/lib';
 import { StyledWallet } from '../wallet/Wallet';
 import { useNavigate } from 'react-router-dom';
+import { matchPath } from '@/utils';
 
 const PROGRAM_ID = import.meta.env.VITE_BOLAOCOREPROGRAM as `0x${string}`;
 const MY_LB_KEY = 'scl_my_leaderboard_v1';
@@ -462,7 +463,7 @@ export default function Leaderboards() {
                     <button
                       className="lbBtn lbBtn--soft lbBtn--sm"
                       type="button"
-                      onClick={() => navigate(`/2026worldcup/match/${m.match_id}`)}>
+                      onClick={() => navigate(matchPath(m.phase, m.match_id))}>
                       Predict
                     </button>
                   </div>

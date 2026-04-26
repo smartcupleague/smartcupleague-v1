@@ -1,12 +1,12 @@
 {
-  "name": "anvl-vara-gateway",
+  "name": "oracle-server",
   "version": "1.0.0",
-  "description": "anvl-vara-gateway",
-  "main": "dist/server.ts",
+  "description": "oracle-server",
+  "main": "dist/server.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.ts"
+    "start": "node dist/server.js"
   },
   "keywords": [
     "vara",
@@ -14,7 +14,7 @@
     "voucher",
     "server"
   ],
-  "author": "Anvl",
+  "author": "smartcup",
   "license": "ISC",
   "engines": {
     "node": ">=18.x"

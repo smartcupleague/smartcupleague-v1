@@ -7,12 +7,12 @@ export type ActorId = string;
 
 export type PenaltyWinner = 'Home' | 'Away';
 
-export type OracleResultStatus = 'Pending' | 'Finalized';
-
 export interface Score {
   home: number;
   away: number;
 }
+
+export type OracleResultStatus = 'Pending' | 'Finalized';
 
 export interface FinalResult {
   score: Score;
@@ -22,10 +22,6 @@ export interface FinalResult {
 
 export interface IoMatchResult {
   match_id: number | string | bigint;
-  phase: string;
-  home: string;
-  away: string;
-  kick_off: number | string | bigint;
   status: OracleResultStatus;
   final_result: FinalResult | null;
   submissions: number;
@@ -33,11 +29,10 @@ export interface IoMatchResult {
 
 export interface IoOracleState {
   admin: ActorId;
-  operators: ActorId[];
   consensus_threshold: number;
   bolao_program_id: ActorId | null;
-  authorized_feeders: ActorId[];
-  match_results: IoMatchResult[];
+  authorized_feeders: Array<ActorId>;
+  match_results: Array<IoMatchResult>;
   pending_admin: ActorId | null;
 }
 
@@ -46,19 +41,9 @@ const types = {
   OracleResultStatus: { _enum: ['Pending', 'Finalized'] },
   Score: { home: 'u8', away: 'u8' },
   FinalResult: { score: 'Score', penalty_winner: 'Option<PenaltyWinner>', finalized_at: 'u64' },
-  IoMatchResult: {
-    match_id: 'u64',
-    phase: 'String',
-    home: 'String',
-    away: 'String',
-    kick_off: 'u64',
-    status: 'OracleResultStatus',
-    final_result: 'Option<FinalResult>',
-    submissions: 'u32',
-  },
+  IoMatchResult: { match_id: 'u64', status: 'OracleResultStatus', final_result: 'Option<FinalResult>', submissions: 'u32' },
   IoOracleState: {
     admin: '[u8;32]',
-    operators: 'Vec<[u8;32]>',
     consensus_threshold: 'u8',
     bolao_program_id: 'Option<[u8;32]>',
     authorized_feeders: 'Vec<[u8;32]>',
@@ -66,21 +51,18 @@ const types = {
     pending_admin: 'Option<[u8;32]>',
   },
   FeederSet: { actor_id: '[u8;32]', bool: 'bool' },
-  ResultSubmitted: { '0': 'u64', '1': '[u8;32]', '2': 'Score' },
-  ConsensusReached: { '0': 'u64', '1': 'Score', '2': 'Option<PenaltyWinner>' },
-  ResultForced: { '0': 'u64', '1': 'Score', '2': 'Option<PenaltyWinner>' },
-  AdminProposed: { '0': '[u8;32]', '1': '[u8;32]' },
-  AdminChanged: { '0': '[u8;32]', '1': '[u8;32]' },
+  ResultSubmitted: { u64: 'u64', actor_id: '[u8;32]', Score: 'Score' },
+  ConsensusReached: { u64: 'u64', Score: 'Score', opt: 'Option<PenaltyWinner>' },
+  ResultForced: { u64: 'u64', Score: 'Score', opt: 'Option<PenaltyWinner>' },
+  AdminProposed: { actor_id1: '[u8;32]', actor_id2: '[u8;32]' },
+  AdminChanged: { actor_id1: '[u8;32]', actor_id2: '[u8;32]' }
 };
 
 export class Program {
   public readonly registry: TypeRegistry;
   public readonly service: Service;
 
-  constructor(
-    public api: GearApi,
-    private _programId?: `0x${string}`,
-  ) {
+  constructor(public api: GearApi, private _programId?: `0x${string}`) {
     this.registry = new TypeRegistry();
     this.registry.setKnownTypes({ types });
     this.registry.register(types);
@@ -181,46 +163,14 @@ export class Service {
     );
   }
 
-  public registerMatch(
-    match_id: number | string | bigint,
-    phase: string,
-    home: string,
-    away: string,
-    kick_off: number | string | bigint,
-  ): TransactionBuilder<null> {
+  public registerMatch(match_id: number | string | bigint): TransactionBuilder<null> {
     if (!this._program.programId) throw new Error('Program ID is not set');
     return new TransactionBuilder<null>(
       this._program.api,
       this._program.registry,
       'send_message',
-      ['Service', 'RegisterMatch', match_id, phase, home, away, kick_off],
-      '(String, String, u64, String, String, String, u64)',
-      'Null',
-      this._program.programId,
-    );
-  }
-
-  public addOperator(new_operator: ActorId): TransactionBuilder<null> {
-    if (!this._program.programId) throw new Error('Program ID is not set');
-    return new TransactionBuilder<null>(
-      this._program.api,
-      this._program.registry,
-      'send_message',
-      ['Service', 'AddOperator', new_operator],
-      '(String, String, [u8;32])',
-      'Null',
-      this._program.programId,
-    );
-  }
-
-  public removeOperator(operator: ActorId): TransactionBuilder<null> {
-    if (!this._program.programId) throw new Error('Program ID is not set');
-    return new TransactionBuilder<null>(
-      this._program.api,
-      this._program.registry,
-      'send_message',
-      ['Service', 'RemoveOperator', operator],
-      '(String, String, [u8;32])',
+      ['Service', 'RegisterMatch', match_id],
+      '(String, String, u64)',
       'Null',
       this._program.programId,
     );
@@ -380,9 +330,7 @@ export class Service {
     return result[2].toJSON() as unknown as IoOracleState;
   }
 
-  public subscribeToMatchRegisteredEvent(
-    callback: (data: number | string | bigint) => void | Promise<void>,
-  ): Promise<() => void> {
+  public subscribeToMatchRegisteredEvent(callback: (data: number | string | bigint) => void | Promise<void>): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
       const payload = message.payload.toHex();
@@ -394,26 +342,19 @@ export class Service {
     });
   }
 
-  public subscribeToFeederSetEvent(
-    callback: (data: { actor_id: ActorId; bool: boolean }) => void | Promise<void>,
-  ): Promise<() => void> {
+  public subscribeToFeederSetEvent(callback: (data: { actor_id: ActorId; bool: boolean }) => void | Promise<void>): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
       const payload = message.payload.toHex();
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'FeederSet') {
         void Promise.resolve(callback(
-          this._program.registry.createType('(String, String, FeederSet)', message.payload)[2].toJSON() as {
-            actor_id: ActorId;
-            bool: boolean;
-          }
+          this._program.registry.createType('(String, String, FeederSet)', message.payload)[2].toJSON() as { actor_id: ActorId; bool: boolean }
         )).catch(console.error);
       }
     });
   }
 
-  public subscribeToConsensusThresholdSetEvent(
-    callback: (data: number) => void | Promise<void>,
-  ): Promise<() => void> {
+  public subscribeToConsensusThresholdSetEvent(callback: (data: number) => void | Promise<void>): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
       const payload = message.payload.toHex();
@@ -425,86 +366,55 @@ export class Service {
     });
   }
 
-  public subscribeToBolaoProgramEvent(
-    callback: (data: ActorId) => void | Promise<void>,
-  ): Promise<() => void> {
+  public subscribeToBolaoProgramEvent(callback: (data: ActorId) => void | Promise<void>): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
       const payload = message.payload.toHex();
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'BolaoProgram') {
         void Promise.resolve(callback(
-          this._program.registry.createType('(String, String, [u8;32])', message.payload)[2].toJSON()
+          this._program.registry.createType('(String, String, [u8;32])', message.payload)[2].toJSON() as ActorId
         )).catch(console.error);
       }
     });
   }
 
-  public subscribeToResultSubmittedEvent(
-    callback: (data: { match_id: number | string | bigint; feeder: ActorId; score: Score }) => void | Promise<void>,
-  ): Promise<() => void> {
+  public subscribeToResultSubmittedEvent(callback: (data: { u64: number | string | bigint, actor_id: ActorId, Score: Score }) => void | Promise<void>): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
       const payload = message.payload.toHex();
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'ResultSubmitted') {
         void Promise.resolve(callback(
-          (() => {
-            const decoded = this._program.registry.createType('(String, String, ResultSubmitted)', message.payload)[2].toJSON() as any[];
-            return {
-              match_id: decoded[0] as number | string | bigint,
-              feeder: decoded[1] as ActorId,
-              score: decoded[2] as Score,
-            };
-          })()
+          this._program.registry.createType('(String, String, ResultSubmitted)', message.payload)[2].toJSON() as unknown as { u64: number | string | bigint, actor_id: ActorId, Score: Score }
         )).catch(console.error);
       }
     });
   }
 
-  public subscribeToConsensusReachedEvent(
-    callback: (data: { match_id: number | string | bigint; score: Score; penalty_winner: PenaltyWinner | null }) => void | Promise<void>,
-  ): Promise<() => void> {
+  public subscribeToConsensusReachedEvent(callback: (data: { u64: number | string | bigint, Score: Score, opt: PenaltyWinner | null }) => void | Promise<void>): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
       const payload = message.payload.toHex();
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'ConsensusReached') {
         void Promise.resolve(callback(
-          (() => {
-            const decoded = this._program.registry.createType('(String, String, ConsensusReached)', message.payload)[2].toJSON() as any[];
-            return {
-              match_id: decoded[0] as number | string | bigint,
-              score: decoded[1] as Score,
-              penalty_winner: decoded[2] as PenaltyWinner | null,
-            };
-          })()
+          this._program.registry.createType('(String, String, ConsensusReached)', message.payload)[2].toJSON() as unknown as { u64: number | string | bigint, Score: Score, opt: PenaltyWinner | null }
         )).catch(console.error);
       }
     });
   }
 
-  public subscribeToResultForcedEvent(
-    callback: (data: { match_id: number | string | bigint; score: Score; penalty_winner: PenaltyWinner | null }) => void | Promise<void>,
-  ): Promise<() => void> {
+  public subscribeToResultForcedEvent(callback: (data: { u64: number | string | bigint, Score: Score, opt: PenaltyWinner | null }) => void | Promise<void>): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
       const payload = message.payload.toHex();
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'ResultForced') {
         void Promise.resolve(callback(
-          (() => {
-            const decoded = this._program.registry.createType('(String, String, ResultForced)', message.payload)[2].toJSON() as any[];
-            return {
-              match_id: decoded[0] as number | string | bigint,
-              score: decoded[1] as Score,
-              penalty_winner: decoded[2] as PenaltyWinner | null,
-            };
-          })()
+          this._program.registry.createType('(String, String, ResultForced)', message.payload)[2].toJSON() as unknown as { u64: number | string | bigint, Score: Score, opt: PenaltyWinner | null }
         )).catch(console.error);
       }
     });
   }
 
-  public subscribeToResultCancelledEvent(
-    callback: (data: number | string | bigint) => void | Promise<void>,
-  ): Promise<() => void> {
+  public subscribeToResultCancelledEvent(callback: (data: number | string | bigint) => void | Promise<void>): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
       const payload = message.payload.toHex();
@@ -516,41 +426,25 @@ export class Service {
     });
   }
 
-  public subscribeToAdminProposedEvent(
-    callback: (data: { old: ActorId; proposed: ActorId }) => void | Promise<void>,
-  ): Promise<() => void> {
+  public subscribeToAdminProposedEvent(callback: (data: { actor_id1: ActorId, actor_id2: ActorId }) => void | Promise<void>): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
       const payload = message.payload.toHex();
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'AdminProposed') {
         void Promise.resolve(callback(
-          (() => {
-            const decoded = this._program.registry.createType('(String, String, AdminProposed)', message.payload)[2].toJSON() as any[];
-            return {
-              old: decoded[0] as ActorId,
-              proposed: decoded[1] as ActorId,
-            };
-          })()
+          this._program.registry.createType('(String, String, AdminProposed)', message.payload)[2].toJSON() as { actor_id1: ActorId; actor_id2: ActorId }
         )).catch(console.error);
       }
     });
   }
 
-  public subscribeToAdminChangedEvent(
-    callback: (data: { old: ActorId; new: ActorId }) => void | Promise<void>,
-  ): Promise<() => void> {
+  public subscribeToAdminChangedEvent(callback: (data: { actor_id1: ActorId, actor_id2: ActorId }) => void | Promise<void>): Promise<() => void> {
     return this._program.api.gearEvents.subscribeToGearEvent('UserMessageSent', ({ data: { message } }) => {
       if (!message.source.eq(this._program.programId) || !message.destination.eq(ZERO_ADDRESS)) return;
       const payload = message.payload.toHex();
       if (getServiceNamePrefix(payload) === 'Service' && getFnNamePrefix(payload) === 'AdminChanged') {
         void Promise.resolve(callback(
-          (() => {
-            const decoded = this._program.registry.createType('(String, String, AdminChanged)', message.payload)[2].toJSON() as any[];
-            return {
-              old: decoded[0] as ActorId,
-              new: decoded[1] as ActorId,
-            };
-          })()
+          this._program.registry.createType('(String, String, AdminChanged)', message.payload)[2].toJSON() as { actor_id1: ActorId; actor_id2: ActorId }
         )).catch(console.error);
       }
     });
